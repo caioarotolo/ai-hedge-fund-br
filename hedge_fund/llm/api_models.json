@@ -48,5 +48,40 @@
     "display_name": "Gemini 3.8 Flash",
     "model_name": "gemini-3.8-flash",
     "provider": "Google"
+  },
+  {
+    "display_name": "Opus",
+    "model_name": "claude-cli:opus",
+    "provider": "Claude CLI",
+    "efforts": ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    "display_name": "Sonnet",
+    "model_name": "claude-cli:sonnet",
+    "provider": "Claude CLI",
+    "efforts": ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    "display_name": "Haiku",
+    "model_name": "claude-cli:haiku",
+    "provider": "Claude CLI"
+  },
+  {
+    "display_name": "GPT-6.1 Sol",
+    "model_name": "codex-cli:gpt-6.1-sol",
+    "provider": "Codex CLI",
+    "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"]
+  },
+  {
+    "display_name": "GPT-6 Astra",
+    "model_name": "codex-cli:gpt-6-astra",
+    "provider": "Codex CLI",
+    "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"]
+  },
+  {
+    "display_name": "GPT-6 Luna",
+    "model_name": "codex-cli:gpt-6-luna",
+    "provider": "Codex CLI",
+    "efforts": ["low", "medium", "high", "xhigh", "max"]
   }
 ]

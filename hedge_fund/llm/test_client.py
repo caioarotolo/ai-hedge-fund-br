@@ -21,6 +21,7 @@ from hedge_fund.llm import ChatLLM
 from hedge_fund.llm import client as client_module
 from hedge_fund.llm import contract
 from hedge_fund.llm import (
+    efforts_for,
     LLMCallError,
     LLMClient,
     load_api_models,
@@ -53,6 +54,8 @@ def keyed(monkeypatch):
         monkeypatch.setenv(env_var, "test-key-not-real")
     monkeypatch.delenv("HEDGE_FUND_LLM_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    # The CLI providers' "key" is an installed binary.
+    monkeypatch.setattr(client_module.shutil, "which", lambda name: f"/usr/bin/{name}")
 
 
 @pytest.mark.parametrize("provider", sorted(SUPPORTED_PROVIDERS))
@@ -119,6 +122,20 @@ def test_provider_for_reads_the_registry():
     assert provider_for("not-a-model") is None
 
 
+def test_plan_models_route_with_or_without_an_effort():
+    assert provider_for("codex-cli:gpt-6.1-sol") == "Codex CLI"
+    assert provider_for("codex-cli:gpt-6.1-sol@xhigh") == "Codex CLI"
+    assert provider_for("claude-cli:opus@max") == "Claude CLI"
+
+
+def test_efforts_come_from_the_registry():
+    assert efforts_for("codex-cli:gpt-6.1-sol")[-1] == "ultra"
+    assert "ultra" not in efforts_for("codex-cli:gpt-6-luna")
+    assert efforts_for("claude-cli:opus@high") == ["low", "medium", "high", "xhigh", "max"]
+    assert efforts_for("claude-cli:haiku") == []
+    assert efforts_for("claude-opus-5-5") == []
+
+
 class FakeChunk:
     def __init__(self, content) -> None:
         self.content = content
@@ -183,6 +200,81 @@ class TestStreaming:
             pass
 
         assert make_llm("claude-opus-5", on_token=listener)._on_token is listener
+
+
+class TestCliLLM:
+    """Subscription-billed CLIs. subprocess.run is faked: what matters is the
+    command line, what reaches stdin, and that API keys never reach the child."""
+
+    @pytest.fixture
+    def run(self, monkeypatch):
+        calls: list[dict] = []
+        result = Mock(returncode=0, stdout=' {"signal": "bullish"}\n', stderr="")
+
+        def fake_run(argv, **kwargs):
+            calls.append({"argv": argv, **kwargs})
+            return result
+
+        monkeypatch.setattr(client_module.subprocess, "run", fake_run)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-would-bill-the-api")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-would-bill-the-api")
+        monkeypatch.setenv("CODEX_API_KEY", "sk-would-bill-the-api")
+        return calls, result
+
+    def test_claude_gets_model_effort_and_system_prompt_with_tools_off(self, keyed, run):
+        calls, _ = run
+        llm = make_llm("claude-cli:claude-opus-5-5@high")
+
+        assert llm.complete("You are Buffett.", "AAPL numbers") == '{"signal": "bullish"}'
+        argv = calls[0]["argv"]
+        assert argv[:2] == ["claude", "-p"]
+        assert argv[argv.index("--model") + 1] == "claude-opus-5-5"
+        assert argv[argv.index("--effort") + 1] == "high"
+        assert argv[argv.index("--system-prompt") + 1] == "You are Buffett."
+        assert argv[argv.index("--tools") + 1] == ""
+        assert calls[0]["input"] == "AAPL numbers"
+        assert "ANTHROPIC_API_KEY" not in calls[0]["env"]
+
+    def test_codex_gets_model_effort_and_the_persona_on_stdin(self, keyed, run):
+        calls, _ = run
+        make_llm("codex-cli:gpt-6.1-sol@xhigh").complete("You are Buffett.", "AAPL numbers")
+
+        argv = calls[0]["argv"]
+        assert argv[:3] == ["codex", "exec", "-"]
+        assert argv[argv.index("-m") + 1] == "gpt-6.1-sol"
+        assert "model_reasoning_effort=xhigh" in argv
+        assert argv[argv.index("-s") + 1] == "read-only"
+        assert calls[0]["input"] == "You are Buffett.\n\nAAPL numbers"
+        assert not {"OPENAI_API_KEY", "CODEX_API_KEY"} & calls[0]["env"].keys()
+
+    @pytest.mark.parametrize("model_id", ["claude-cli:claude-sonnet-5-5", "codex-cli:gpt-6-luna"])
+    def test_no_effort_leaves_the_cli_default(self, keyed, run, model_id):
+        calls, _ = run
+        make_llm(model_id).complete("s", "u")
+        argv = calls[0]["argv"]
+        assert "--effort" not in argv
+        assert not any(arg.startswith("model_reasoning_effort") for arg in argv)
+
+    def test_nonzero_exit_raises_with_the_cli_message(self, keyed, run):
+        """An LLMCallError makes the agent abstain instead of parsing an error."""
+        _, result = run
+        result.returncode, result.stdout = 1, "Your organization has disabled Claude subscription access"
+        with pytest.raises(LLMCallError, match="claude exited 1: Your organization"):
+            make_llm("claude-cli:claude-opus-5-5").complete("s", "u")
+
+    def test_listener_receives_the_whole_answer(self, keyed, run):
+        seen: list[str] = []
+        make_llm("codex-cli:gpt-6-luna", on_token=seen.append).complete("s", "u")
+        assert seen == ['{"signal": "bullish"}']
+
+    def test_missing_binary_names_it(self, monkeypatch):
+        monkeypatch.setattr(client_module.shutil, "which", lambda name: None)
+        with pytest.raises(ValueError, match="`codex` not found"):
+            make_llm("codex-cli:gpt-6-luna")
+
+    def test_id_without_a_model_is_rejected(self, keyed):
+        with pytest.raises(ValueError, match="Bad CLI model id"):
+            make_llm("claude-cli:@high")
 
 
 class TestFlatten:

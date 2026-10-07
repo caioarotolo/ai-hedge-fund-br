@@ -42,6 +42,7 @@ The app reads the shell environment, then the checkout's `.env`, then `~/.hedge-
 - An [OpenMarkets](https://openmarkets.com.br/docs/api-rest) data API key. Set `OPENMARKETS_API_KEY` in the checkout's `.env`. No market-data fallback is used.
 - REST coverage and real response schemas still require authenticated validation; see [migration status](docs/openmarkets-migration.md) and [reproduction commands](docs/openmarkets-backtesting.md).
 - One model API key for the investor agents. Supported providers: Anthropic, OpenAI, DeepSeek, Google, xAI, Kimi, TypeSafe (Jev).
+- Or no key: run the agents through a logged-in `claude` or `codex` CLI, billed to that subscription. Pick a model with `HEDGE_FUND_LLM_MODEL=claude-cli:<model>[@effort]` or `codex-cli:<model>[@effort]` (e.g. `claude-cli:opus@high`, `codex-cli:gpt-6.1-sol@medium`). API keys in the environment are not passed to the CLI.
 
 Keys exported in your shell always win over the saved file.
 

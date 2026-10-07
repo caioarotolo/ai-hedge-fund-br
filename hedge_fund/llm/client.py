@@ -17,6 +17,9 @@ import json
 import math
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -204,6 +207,72 @@ class JevLLM:
         return value
 
 
+class CliLLM:
+    """A coding-agent CLI billed to its own login: `claude -p` or `codex exec`.
+
+    Model ids read "claude-cli:<model>[@<effort>]" or "codex-cli:<model>[@<effort>]",
+    e.g. "codex-cli:gpt-6.1-sol@high". The effort is part of the id so the
+    prompt cache keeps answers given at different reasoning levels apart.
+
+    One subprocess per call: tools off, nothing persisted, run from the temp
+    dir so no project CLAUDE.md/AGENTS.md leaks into the prompt. There is no
+    token stream — the listener gets the whole answer once it is done.
+    """
+
+    BINARIES = {"claude-cli": "claude", "codex-cli": "codex"}
+    # Present in the env, these would bill the API instead of the plan.
+    _API_KEY_VARS = {"claude-cli": ("ANTHROPIC_API_KEY",),
+                     "codex-cli": ("CODEX_API_KEY", "OPENAI_API_KEY")}
+
+    def __init__(self, model: str, timeout: float = 600.0, on_token: TokenListener = None) -> None:
+        cli, _, rest = model.partition(":")
+        cli_model, _, effort = rest.partition("@")
+        if cli not in self.BINARIES or not cli_model:
+            raise ValueError(f"Bad CLI model id {model!r}: expected claude-cli:<model>[@effort] "
+                             "or codex-cli:<model>[@effort]")
+        self.model = model
+        self._cli = cli
+        self._cli_model = cli_model
+        self._effort = effort
+        self._timeout = timeout
+        self._on_token = on_token
+
+    def complete(self, system: str, user: str) -> str:
+        if self._cli == "claude-cli":
+            argv = ["claude", "-p", "--system-prompt", system, "--tools", "",
+                    "--setting-sources", "", "--strict-mcp-config",
+                    "--no-session-persistence", "--output-format", "text",
+                    "--model", self._cli_model]
+            if self._effort:
+                argv += ["--effort", self._effort]
+            prompt = user
+        else:
+            # codex exec has no system-prompt flag; the persona leads the prompt.
+            argv = ["codex", "exec", "-", "-m", self._cli_model, "-s", "read-only",
+                    "--skip-git-repo-check", "--ephemeral", "--ignore-user-config",
+                    "--ignore-rules", "--color", "never"]
+            if self._effort:
+                argv += ["-c", f"model_reasoning_effort={self._effort}"]
+            prompt = f"{system}\n\n{user}"
+
+        env = {k: v for k, v in os.environ.items() if k not in self._API_KEY_VARS[self._cli]}
+        try:
+            proc = subprocess.run(argv, input=prompt, capture_output=True, text=True,
+                                  timeout=self._timeout, cwd=tempfile.gettempdir(), env=env)
+        except subprocess.TimeoutExpired:
+            raise LLMCallError(f"{argv[0]} timed out after {self._timeout:.0f}s") from None
+        if proc.returncode != 0:
+            # claude prints its error on stdout (stderr carries warnings);
+            # codex leaves stdout empty and explains on stderr.
+            detail = (proc.stdout.strip() or proc.stderr.strip())[-500:]
+            raise LLMCallError(f"{argv[0]} exited {proc.returncode}: {detail}")
+
+        text = proc.stdout.strip()
+        if self._on_token is not None and text:
+            self._on_token(text)
+        return text
+
+
 def _retry_delay(header: str | None) -> float:
     """One-second backoff, honoring valid delta-seconds and HTTP-date values."""
     if header is not None:
@@ -235,6 +304,17 @@ def make_llm(
     environment variable, because that is the only thing the user can act on.
     """
     model = model or os.environ.get("HEDGE_FUND_LLM_MODEL") or DEFAULT_MODEL
+
+    # Routed by prefix, not the registry, so any model@effort pair works.
+    # The 60s default is an HTTP budget; a CLI boots an agent and may reason
+    # for minutes, so it keeps its own.
+    cli = model.partition(":")[0]
+    if cli in CliLLM.BINARIES:
+        binary = CliLLM.BINARIES[cli]
+        if shutil.which(binary) is None:
+            raise ValueError(f"`{binary}` not found on PATH. Install it and log in to use {model}.")
+        return CliLLM(model, on_token=on_token)
+
     provider = provider_for(model)
     if provider is None:
         # Unlisted ids still work: a model newer than the registry should not

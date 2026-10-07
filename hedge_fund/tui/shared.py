@@ -16,7 +16,7 @@ from pathlib import Path
 from rich.text import Text
 
 from hedge_fund.fund import FundSpec, PortfolioMode, StrategySpec
-from hedge_fund.llm import is_supported, load_api_models  # noqa: F401  (re-export)
+from hedge_fund.llm import efforts_for, is_supported, load_api_models, PLAN_PROVIDERS  # noqa: F401  (re-export)
 from hedge_fund.paths import (  # noqa: F401  (re-export)
     ensure_mandates_dir,
     MANDATES_DIR,

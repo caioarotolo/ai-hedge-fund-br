@@ -102,12 +102,14 @@ from hedge_fund.tui.shared import (
     DEFAULT_CAPITAL,
     DEFAULT_RISK,
     DISPLAY_NAMES,
+    efforts_for,
     ensure_mandates_dir,
     is_supported,
     load_api_models,
     MANDATES_DIR,
     MODE_LABELS,
     PAPER_DIR,
+    PLAN_PROVIDERS,
     RESEARCH_DIR,
     strategy_description,
     STRATEGY_DIR,
@@ -168,7 +170,7 @@ class HomeScreen(Screen):
         models = load_api_models()
         preset = os.environ.get("HEDGE_FUND_LLM_MODEL")
         known = {mid for _, mid, _ in models}
-        self._model_id = preset if preset in known else next(
+        self._model_id = preset if preset and preset.partition("@")[0] in known else next(
             (mid for label, mid, _ in models if label == _DEFAULT_MODEL_LABEL),
             models[0][1],
         )
@@ -205,8 +207,11 @@ class HomeScreen(Screen):
         self.app.exit()
 
     def _show_model(self) -> None:
+        base, _, effort = self._model_id.partition("@")
         label = next((name for name, mid, _ in load_api_models()
-                      if mid == self._model_id), self._model_id)
+                      if mid == base), self._model_id)
+        if effort:
+            label = f"{label} · {effort}"
         self.query_one("#model-line", Static).update(
             Text.assemble(
                 ("agents reason with  ", MUTED),
@@ -299,6 +304,10 @@ def _demand_run_keys(app, resume) -> bool:
 class ModelPickerScreen(ModalScreen[str | None]):
     """Every model in the repo's registry, grouped by provider.
 
+    Plan providers (a logged-in claude/codex CLI) come first and say so: they
+    bill the subscription, the rest bill an API key per token. Picking a plan
+    model with reasoning levels asks for the level next.
+
     Providers v2 has no client for are shown but not selectable — listing
     them is honest about what exists, and disabling them stops a run from
     dying halfway through on a model id ChatAnthropic will reject.
@@ -309,6 +318,7 @@ class ModelPickerScreen(ModalScreen[str | None]):
     def __init__(self, current: str) -> None:
         super().__init__()
         self._current = current
+        self._current_base, _, self._current_effort = current.partition("@")
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker"):
@@ -324,15 +334,21 @@ class ModelPickerScreen(ModalScreen[str | None]):
         for provider, models in self._by_provider().items():
             reachable = is_supported(provider)
             head = Text(provider.upper(), style=f"bold {BRIGHT}")
-            if not reachable:
+            if provider in PLAN_PROVIDERS:
+                head.append("   included in your plan", style=f"bold {GREEN}")
+            elif reachable:
+                head.append("   API · billed per token", style=MUTED)
+            else:
                 head.append("   no client in v2 yet", style=MUTED)
             options.append(Option(head, disabled=True))
             for name, model_id, _ in models:
+                current = model_id == self._current_base
                 row = Text()
-                row.append(" ✓ " if model_id == self._current else "   ",
-                           style=f"bold {GREEN}")
+                row.append(" ✓ " if current else "   ", style=f"bold {GREEN}")
                 row.append(f"{name:<18}", style=None if reachable else MUTED)
                 row.append(model_id, style=MUTED)
+                if current and self._current_effort:
+                    row.append(f"@{self._current_effort}", style=GREEN)
                 options.append(Option(
                     row, id=model_id if reachable else None,
                     disabled=not reachable))
@@ -340,19 +356,70 @@ class ModelPickerScreen(ModalScreen[str | None]):
         return options[:-1] if options else options
 
     def _by_provider(self) -> dict[str, list[tuple[str, str, str]]]:
-        """Registry order preserved, reachable providers first — what you can
-        actually pick should not sit below what you cannot."""
+        """Registry order preserved; plan providers first, then the reachable
+        ones — what you can actually pick should not sit below what you cannot."""
         groups: dict[str, list[tuple[str, str, str]]] = {}
         for entry in load_api_models():
             groups.setdefault(entry[2], []).append(entry)
         return dict(sorted(groups.items(),
-                           key=lambda kv: not is_supported(kv[0])))
+                           key=lambda kv: (kv[0] not in PLAN_PROVIDERS,
+                                           not is_supported(kv[0]))))
 
     def on_mount(self) -> None:
         picker = self.query_one("#picker-list", OptionList)
         picker.highlighted = next(
             (i for i, opt in enumerate(picker._options)
-             if opt.id == self._current), 1)
+             if opt.id == self._current_base), 1)
+        picker.focus()
+
+    @on(OptionList.OptionSelected, "#picker-list")
+    def _pick(self, event: OptionList.OptionSelected) -> None:
+        model_id = event.option.id
+        efforts = efforts_for(model_id)
+        if not efforts:
+            self.dismiss(model_id)
+            return
+        def chosen(effort: str | None) -> None:
+            # Not a lambda: textual awaits a callback's return value, and
+            # awaiting dismiss() from inside this screen's handler raises.
+            if effort:
+                self.dismiss(f"{model_id}@{effort}")
+
+        current = self._current_effort if model_id == self._current_base else None
+        self.app.push_screen(EffortPickerScreen(model_id, efforts, current), chosen)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class EffortPickerScreen(ModalScreen[str | None]):
+    """How hard a plan model reasons. Esc goes back to the model list."""
+
+    BINDINGS = [Binding("escape", "cancel", "cancel")]
+
+    def __init__(self, model_id: str, efforts: list[str], current: str | None) -> None:
+        super().__init__()
+        self._model_id = model_id
+        self._efforts = efforts
+        self._current = current
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker"):
+            yield Static(Text.assemble(("Reasoning for  ", f"bold {BRIGHT}"),
+                                       (self._model_id, f"bold {GREEN}")),
+                         id="picker-q")
+            yield OptionList(*(
+                Option(Text.assemble((" ✓ " if effort == self._current else "   ",
+                                      f"bold {GREEN}"), effort), id=effort)
+                for effort in self._efforts), id="picker-list")
+            yield Static(Text("higher reasons longer and uses more of the plan · "
+                              "esc to go back", style=MUTED), classes="hint")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        picker = self.query_one("#picker-list", OptionList)
+        if self._current in self._efforts:
+            picker.highlighted = self._efforts.index(self._current)
         picker.focus()
 
     @on(OptionList.OptionSelected, "#picker-list")

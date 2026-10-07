@@ -240,7 +240,7 @@ KeyPromptScreen {
 
 /* ---------------- model picker ---------------- */
 
-ModelPickerScreen {
+ModelPickerScreen, EffortPickerScreen {
     align: center middle;
     background: #0b100e 70%;
 }

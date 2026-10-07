@@ -315,6 +315,46 @@ def test_builder_existing_name_and_save_race_never_overwrite():
     asyncio.run(scenario())
 
 
+def test_plan_models_lead_the_picker_and_ask_for_reasoning(isolated_configuration):
+    async def scenario():
+        app = ui.HedgeFundApp()
+        async with app.run_test(size=(100, 35)) as pilot:
+            await pilot.press("m")
+            picker = app.screen.query_one("#picker-list", OptionList)
+            headers = [_render(picker.get_option_at_index(i).prompt)
+                       for i in range(picker.option_count)
+                       if picker.get_option_at_index(i).disabled]
+            assert "CLAUDE CLI" in headers[0] and "included in your plan" in headers[0]
+            assert "CODEX CLI" in headers[1] and "included in your plan" in headers[1]
+            assert all("included in your plan" not in h for h in headers[2:])
+            assert any("API · billed per token" in h for h in headers[2:])
+
+            picker.highlighted = picker.get_option_index("codex-cli:gpt-6.1-sol")
+            await pilot.press("enter")
+            assert isinstance(app.screen, ui.EffortPickerScreen)
+            await pilot.press("escape")  # back to the models, nothing chosen
+            assert isinstance(app.screen, ui.ModelPickerScreen)
+            assert os.environ["HEDGE_FUND_LLM_MODEL"] != "codex-cli:gpt-6.1-sol"
+
+            await pilot.press("enter")
+            efforts = app.screen.query_one("#picker-list", OptionList)
+            efforts.highlighted = efforts.get_option_index("xhigh")
+            await pilot.press("enter")
+            assert isinstance(app.screen, ui.HomeScreen)
+            assert os.environ["HEDGE_FUND_LLM_MODEL"] == "codex-cli:gpt-6.1-sol@xhigh"
+            line = _render(app.screen.query_one("#model-line", Static).render())
+            assert "GPT-6.1 Sol · xhigh" in line
+
+            # A model without reasoning levels is picked in one step.
+            await pilot.press("m")
+            picker = app.screen.query_one("#picker-list", OptionList)
+            picker.highlighted = picker.get_option_index("claude-cli:haiku")
+            await pilot.press("enter")
+            assert os.environ["HEDGE_FUND_LLM_MODEL"] == "claude-cli:haiku"
+
+    asyncio.run(scenario())
+
+
 def test_both_pickers_disable_only_invalid_configurations():
     files = {"old.yaml": "name: old\n", "broken.yaml": "[oops",
              "mixed.yaml": yaml.safe_dump(_spec().model_dump()),

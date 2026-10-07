@@ -30,7 +30,10 @@ PROVIDER_ENV_VARS = {
 # Providers v2 has a client for (see client.py:make_llm). Anything in the
 # registry but missing here is shown in the picker and not selectable — better
 # a greyed row than a run that dies on an id the transport rejects.
-SUPPORTED_PROVIDERS = frozenset(PROVIDER_ENV_VARS)
+# The CLI providers need no key: they bill the subscription the CLI is
+# logged in with (client.py:CliLLM).
+PLAN_PROVIDERS = frozenset({"Claude CLI", "Codex CLI"})
+SUPPORTED_PROVIDERS = frozenset(PROVIDER_ENV_VARS) | PLAN_PROVIDERS
 
 _FALLBACK = ("Opus 5.5", "claude-opus-5-5", "Anthropic")
 
@@ -52,9 +55,23 @@ def load_api_models() -> list[tuple[str, str, str]]:
 
 def provider_for(model_id: str) -> str | None:
     """Which provider serves a model id. None if it is not in the registry —
-    a hand-exported HEDGE_FUND_LLM_MODEL should not be second-guessed."""
-    return next((prov for _, mid, prov in load_api_models() if mid == model_id),
+    a hand-exported HEDGE_FUND_LLM_MODEL should not be second-guessed.
+    A plan model's "@effort" suffix does not change who serves it."""
+    base = model_id.partition("@")[0]
+    return next((prov for _, mid, prov in load_api_models() if mid == base),
                 None)
+
+
+def efforts_for(model_id: str) -> list[str]:
+    """Reasoning levels a plan model offers, picked as "<id>@<effort>".
+    Empty for API models and for a missing or malformed registry."""
+    base = model_id.partition("@")[0]
+    try:
+        entries = json.loads(API_MODELS_PATH.read_text())
+        return next((list(e.get("efforts", [])) for e in entries
+                     if e["model_name"] == base), [])
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
 
 
 def env_var_for(provider: str) -> str | None:
