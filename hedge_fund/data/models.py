@@ -1,8 +1,4 @@
-"""Pydantic models for Financial Datasets API responses.
-
-Field names and nullability match the FD backend serializers.
-All models use ``extra="ignore"`` for forward-compatibility.
-"""
+"""Normalized provider-independent models. Missing financial values remain None."""
 
 from __future__ import annotations
 
@@ -27,6 +23,14 @@ class Price(BaseModel):
     low: float
     volume: int
     time: str
+    currency: str = "BRL"
+    data_source: str = "unspecified"
+    price_basis: str | None = None
+    price_basis_verified: bool = False
+    raw_close: float | None = None
+    adjustment_factor: float | None = None
+    adjusted_ohlc_derived: bool = False
+    underlying_source: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -46,9 +50,12 @@ class FinancialMetrics(BaseModel):
     report_period: str
     period: str
     currency: str | None = None
+    data_source: str = "unspecified"
+    point_in_time: bool = True
 
-    # Point-in-time filing metadata (Eastern Time) — when this data became
-    # public. Null on rows without a dated SEC filing (deep-history archive).
+    # Known publication/delivery date of retained source observations.
+    # OpenMarkets may expose CVM delivery dates without an original revision
+    # archive; a populated date therefore does not imply point_in_time=True.
     filing_date: str | None = None
     filing_datetime: str | None = None
 
@@ -116,9 +123,18 @@ class InsiderTrade(BaseModel):
     model_config = _IGNORE
 
     ticker: str
-    name: str
-    filing_date: str
-    is_board_director: bool = False
+    ticker_scope: str = 'security'
+    name: str | None = None
+    filing_date: str | None = None
+    point_in_time: bool = True
+    is_aggregated: bool = False
+    origin: str | None = None
+    reference_date: str | None = None
+    data_source: str = "unspecified"
+    is_board_director: bool | None = None
+    instrument_class: str | None = None
+    transaction_units: float | None = None
+    transaction_price_per_unit: float | None = None
     issuer: str | None = None
     title: str | None = None
     transaction_date: str | None = None
@@ -227,16 +243,19 @@ class Earnings(BaseModel):
     report_period: str
     fiscal_period: str | None = None
     currency: str | None = None
+    # Provider provenance; OpenMarkets statement facts are not point-in-time.
+    data_source: str = "unspecified"
+    point_in_time: bool = True
     quarterly: EarningsData | None = None
     annual: EarningsData | None = None
 
 
 class EarningsRecord(BaseModel):
-    """One filing from /earnings/?ticker=X&limit=N (flat history mode).
+    """One earnings-history period record from /earnings/?ticker=X&limit=N.
 
-    Each record is a single SEC filing about a fiscal period.
-    The same report_period can appear multiple times with different
-    source_type values (e.g. 8-K and 10-Q for the same quarter).
+    A provider may return multiple records for the same report period with
+    different source_type values, such as an ITR quarter and DFP annual filing.
+    Publication dates are optional and must not be inferred from report_period.
     """
 
     model_config = _IGNORE
@@ -244,6 +263,9 @@ class EarningsRecord(BaseModel):
     ticker: str
     report_period: str
     source_type: str
+    # Provider provenance; OpenMarkets statement facts are not point-in-time.
+    data_source: str = "unspecified"
+    point_in_time: bool = True
     filing_date: str | None = None
     filing_datetime: str | None = None
     filing_window: str | None = None

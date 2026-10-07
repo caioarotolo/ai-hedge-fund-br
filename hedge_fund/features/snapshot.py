@@ -1,10 +1,10 @@
-"""Point-in-time fundamentals snapshot — the shared input for LLM analysts.
+"""Fundamentals snapshot — the shared input for LLM analysts.
 
 A `FundamentalsSnapshot` is everything an investor agent is allowed to know
-about a company as of a given date: a history of financial metrics (each row
-provably public by `as_of` — the data layer filters on filing_date, not
-report_period) plus a few derived aggregates computed here in Python so the
-LLM reasons over facts instead of re-deriving arithmetic.
+about a company at a given cutoff plus aggregates computed here in Python.
+Providers with verified public availability support point-in-time snapshots;
+providers without original disclosure vintages support exploratory snapshots
+only, with that limitation carried in metadata and the rendered prompt.
 
 The snapshot is pure data: build it once, hash it, feed it to any persona.
 `content_hash` is the cache key for LLM calls — an agent only re-reasons
@@ -16,6 +16,7 @@ must produce an identical prompt (a cache hit), not two paid LLM calls.
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 
 from pydantic import BaseModel
 
@@ -55,6 +56,11 @@ class FundamentalsSnapshot(BaseModel):
 
     ticker: str
     as_of: str
+    # False when the provider cannot establish original public availability
+    # and vintage. Such snapshots support exploratory replay, not PIT claims.
+    point_in_time: bool = True
+    source: str | None = None
+    currency: str | None = None
     sector: str | None = None
     industry: str | None = None
     periods: list[PeriodFundamentals]
@@ -66,8 +72,8 @@ class FundamentalsSnapshot(BaseModel):
     bvps_cagr: float | None = None
     debt_to_equity_latest: float | None = None
     market_cap_latest: float | None = None
-    # t-0 EPS versus t-4 (one year of quarter-spaced ttm rows). None when
-    # either print is missing or the year-ago EPS is not positive.
+    # Latest EPS versus the same calendar quarter one year earlier. None
+    # when that period is absent or its EPS is missing/non-positive.
     eps_growth_yoy: float | None = None
     # Size as a market-cap percentile of US stocks (steps of 5) as of the t-0
     # filing. Set only when build_snapshot is given a breakpoints table; None
@@ -110,11 +116,12 @@ class FundamentalsSnapshot(BaseModel):
             f"Company: {self.ticker}"
             + (f"  |  Sector: {self.sector}" if self.sector else "")
             + (f"  |  Industry: {self.industry}" if self.industry else ""),
-            "All figures below were publicly filed by their filing dates. "
-            "Treat the most recent filing shown as the present.",
+            ("All figures below were publicly filed by their filing dates. "
+             "Treat the most recent filing shown as the present."
+             if self.point_in_time else self._historical_warning()),
             "",
             "Summary:",
-            f"  Market cap (latest filed): {_fmt(self.market_cap_latest)}",
+            f"  Market cap ({'latest filed' if self.point_in_time else 'latest period'}): {_fmt(self.market_cap_latest)}",
             f"  ROE avg: {_fmt(self.roe_avg)}  |  Net margin avg: {_fmt(self.net_margin_avg)}",
             f"  Gross margin trend (latest-oldest): {_fmt(self.gross_margin_trend)}",
             f"  Book value/share CAGR: {_fmt(self.bvps_cagr)}",
@@ -134,7 +141,18 @@ class FundamentalsSnapshot(BaseModel):
                 f"| {_fmt(p.earnings_per_share)} | {_fmt(p.book_value_per_share)} "
                 f"| {_fmt(p.free_cash_flow_per_share)}"
             )
+        if self.source or self.currency:
+            lines.insert(1, self._provenance())
         return "\n".join(lines)
+
+    def _provenance(self) -> str:
+        return f"Data source: {self.source or 'unspecified'} | Monetary units: {self.currency or 'unspecified'}"
+
+    def _historical_warning(self) -> str:
+        return ("EXPLORATORY DATA: original public availability and historical "
+                "vintages are not verified. These figures may contain later "
+                "restatements. Period end dates are not publication dates; "
+                "do not interpret this replay as a reliable historical backtest.")
 
     def _render_blind(self) -> str:
         """Backtest prompt: ratios and indexed trends, no identifying dollars."""
@@ -142,13 +160,17 @@ class FundamentalsSnapshot(BaseModel):
         lines = [
             f"Company: (withheld)"
             + (f"  |  Sector: {self.sector}" if self.sector else ""),
-            "Periods are labelled relative to the latest filing (t-0). "
-            "Calendar dates, absolute size and per-share dollar values are withheld; "
+            "Periods are labelled relative to the latest reporting period (t-0). "
+            "Calendar dates, absolute size and per-share monetary values are withheld; "
             "per-share figures are indexed to the oldest period shown (= 100). "
             "Treat t-0 as the present.",
             "",
             "Summary:",
         ]
+        if not self.point_in_time:
+            lines.insert(1, self._historical_warning())
+        if self.source or self.currency:
+            lines.insert(1, self._provenance())
         if self.size_percentile is not None:
             lines.append(f"  Size: {_size_label(self.size_percentile)}")
         lines += [
@@ -182,13 +204,13 @@ def build_snapshot(
     periods: int = 20,
     breakpoints: MEBreakpoints | None = None,
 ) -> FundamentalsSnapshot:
-    """Build the point-in-time snapshot for (ticker, as_of).
+    """Build a snapshot for (ticker, as_of), retaining provider PIT metadata.
 
     `breakpoints`, when given, places the t-0 filed market cap on the size
     distribution of US stocks as of that filing (blind prompts show the
     percentile instead of dollars). Without it `size_percentile` stays None.
 
-    Raises InsufficientData if fewer than MIN_PERIODS filed periods exist.
+    Raises InsufficientData if fewer than MIN_PERIODS reporting periods exist.
     Data-layer failures propagate (fail loud) — a broken snapshot must never
     silently become a neutral view.
     """
@@ -197,7 +219,7 @@ def build_snapshot(
     )
     if len(metrics) < MIN_PERIODS:
         raise InsufficientData(
-            f"{ticker} as of {as_of}: only {len(metrics)} filed periods "
+            f"{ticker} as of {as_of}: only {len(metrics)} reporting periods "
             f"(need {MIN_PERIODS})"
         )
 
@@ -212,12 +234,18 @@ def build_snapshot(
     ]
 
     size_percentile = None
+    currency = metrics[0].currency or getattr(data_client, 'currency', None)
+    if breakpoints is not None and currency and currency != breakpoints.currency:
+        raise ValueError(f'market cap currency {currency} cannot be compared to {breakpoints.currency} breakpoints')
     if breakpoints is not None and rows[0].filing_date is not None:
         size_percentile = breakpoints.size_percentile(rows[0].market_cap, rows[0].filing_date)
 
     return FundamentalsSnapshot(
         ticker=ticker,
         as_of=as_of,
+        point_in_time=getattr(data_client, "point_in_time", True),
+        source=getattr(data_client, "provider", None),
+        currency=currency,
         # Sector/industry are slow-moving company attributes; using latest
         # facts here is an accepted, documented PIT approximation.
         sector=facts.sector if facts else None,
@@ -226,7 +254,8 @@ def build_snapshot(
         roe_avg=_avg([m.return_on_equity for m in metrics]),
         net_margin_avg=_avg([m.net_margin for m in metrics]),
         gross_margin_trend=_trend([m.gross_margin for m in metrics]),
-        bvps_cagr=_cagr([m.book_value_per_share for m in metrics]),
+        bvps_cagr=_cagr([m.book_value_per_share for m in metrics],
+                        [m.report_period for m in metrics]),
         debt_to_equity_latest=metrics[0].debt_to_equity,
         market_cap_latest=metrics[0].market_cap,
         eps_growth_yoy=_eps_growth_yoy(rows),
@@ -257,11 +286,18 @@ def _per_share_index(value: float | None, base: float | None) -> str:
 
 
 def _eps_growth_yoy(periods: list[PeriodFundamentals]) -> float | None:
-    """t-0 EPS versus t-4. None when either is missing or t-4 EPS is not positive."""
-    if len(periods) < 5:
+    """Compare the latest EPS with the same quarter of the previous year."""
+    if not periods:
         return None
+    latest_date = date.fromisoformat(periods[0].report_period[:10])
+    quarter = (latest_date.month - 1) // 3
     latest = periods[0].earnings_per_share
-    prior = periods[4].earnings_per_share
+    prior = None
+    for period in periods[1:]:
+        prior_date = date.fromisoformat(period.report_period[:10])
+        if prior_date.year == latest_date.year - 1 and (prior_date.month - 1) // 3 == quarter:
+            prior = period.earnings_per_share
+            break
     if latest is None or prior is None or prior <= 0:
         return None
     return round(latest / prior - 1, 4)
@@ -288,12 +324,27 @@ def _trend(values: list[float | None]) -> float | None:
     return round(xs[0] - xs[-1], 4) if len(xs) >= 2 else None
 
 
-def _cagr(values: list[float | None]) -> float | None:
-    """Annualized growth from oldest to latest (ttm rows are quarter-spaced)."""
-    xs = [v for v in values if v is not None]
-    if len(xs) < 2 or xs[-1] is None or xs[-1] <= 0 or xs[0] <= 0:
+def _cagr(values: list[float | None], report_periods: list[str] | None = None) -> float | None:
+    """Annualize valid endpoint values over their actual elapsed dates.
+
+    Direct callers without dates retain the quarter-grid assumption, keeping
+    the original positions of missing values so gaps do not shorten time.
+    """
+    if report_periods is not None and len(values) != len(report_periods):
+        raise ValueError("CAGR values and report periods must have the same length")
+    valid = [(index, value) for index, value in enumerate(values) if value is not None]
+    if len(valid) < 2:
         return None
-    years = (len(xs) - 1) / 4  # quarter-spaced ttm periods
+    latest_index, latest = valid[0]
+    oldest_index, oldest = valid[-1]
+    if oldest <= 0 or latest <= 0:
+        return None
+    if report_periods is None:
+        years = (oldest_index - latest_index) / 4
+    else:
+        latest_date = date.fromisoformat(report_periods[latest_index][:10])
+        oldest_date = date.fromisoformat(report_periods[oldest_index][:10])
+        years = (latest_date - oldest_date).days / 365.25
     if years <= 0:
         return None
-    return round((xs[0] / xs[-1]) ** (1 / years) - 1, 4)
+    return round((latest / oldest) ** (1 / years) - 1, 4)

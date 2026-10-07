@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date, timedelta
 
 import pytest
@@ -184,32 +183,17 @@ class TestMetrics:
 
 
 # ---------------------------------------------------------------------------
-# Integration — requires API key
+# Unsupported production capability — no credentials or live network.
 # ---------------------------------------------------------------------------
 
-pytestmark_live = pytest.mark.skipif(
-    not os.environ.get("FINANCIAL_DATASETS_API_KEY"),
-    reason="live tests require FINANCIAL_DATASETS_API_KEY",
-)
 
-
-@pytest.fixture(scope="module")
-def fd():
-    from hedge_fund.data import FDClient
-    with FDClient() as client:
-        yield client
-
-
-@pytestmark_live
-def test_pead_alpha_live(fd):
+def test_pead_backtest_refuses_unverified_openmarkets_earnings(monkeypatch):
+    from hedge_fund.data.client import OpenMarketsClient
     from hedge_fund.signals import PEADModel
-    import math
-
-    result = BacktestEngine().run_alpha(
-        PEADModel(), ["AAPL"], fd, "2024-06-01", date.today().isoformat(),
-        holding_days=5,
-    )
-    assert len(result.trades) > 0
-    assert result.metrics is not None
-    assert math.isfinite(result.metrics.sharpe_ratio)
-    assert math.isfinite(result.metrics.total_return_pct)
+    with OpenMarketsClient(api_key="synthetic-key", request_interval=0) as client:
+        monkeypatch.setattr(client, "get_prices", lambda *args: [
+            Price(open=30, high=31, low=29, close=30, volume=100,
+                  time="2024-06-03", data_source="synthetic-test-fixture")])
+        with pytest.raises(ValueError, match="PEAD is unsupported by OpenMarkets"):
+            BacktestEngine().run_alpha(PEADModel(), ["PETR4"], client,
+                                      "2024-06-01", "2024-06-07", holding_days=5)

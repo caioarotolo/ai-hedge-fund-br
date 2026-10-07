@@ -39,8 +39,17 @@ class DataClient(Protocol):
     must RAISE — a provider that silently returns empty on failure poisons
     backtests, because missing data is indistinguishable from "no signal".
 
-    get_financial_metrics must be point-in-time: return only data that was
-    publicly filed by *end_date*, not data whose fiscal period ended by then.
+    Providers expose ``provider`` and ``point_in_time`` metadata when known.
+    A provider with ``point_in_time=False`` may support exploratory replay
+    using period-ended data with later restatements; callers must label it
+    accordingly. Unknown metadata defaults to the original PIT contract for
+    legacy injected clients. A true PIT provider returns only data publicly
+    filed by *end_date*, not merely fiscal periods ended by then.
+
+    Providers without consensus earnings / dated announcement coverage must
+    report that gap explicitly, rather than fabricate surprise labels. The
+    optional ``earnings_surprises`` capability lets PEAD reject unsupported
+    sources before producing a misleading all-neutral replay.
     """
 
     def get_prices(

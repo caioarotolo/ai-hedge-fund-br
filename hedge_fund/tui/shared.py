@@ -35,8 +35,8 @@ except PackageNotFoundError:  # running from source without an install
 # and live in ~/.hedge-fund/ (see paths.py).
 STRATEGY_DIR = Path(__file__).resolve().parent.parent / "strategies"
 
-UNIVERSE_PRESETS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
-                    "META", "TSLA", "JPM", "UNH", "XOM"]
+UNIVERSE_PRESETS = ["PETR4", "VALE3", "ITUB4", "BBAS3", "BBDC4",
+                    "ABEV3", "WEGE3", "RENT3", "SUZB3", "B3SA3"]
 
 DISPLAY_NAMES = {
     "buffett": "Warren Buffett",
@@ -131,8 +131,8 @@ def _strategy_kind(strategy: StrategySpec) -> str:
 
 def _money(value: float) -> str:
     if abs(value) >= 10_000:
-        return f"${value / 1000:,.0f}k"
-    return f"${value:,.0f}"
+        return f"R${value / 1000:,.0f}k"
+    return f"R${value:,.0f}"
 
 
 def _render_chart(

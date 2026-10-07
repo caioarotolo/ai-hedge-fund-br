@@ -18,8 +18,9 @@ from datetime import date as _date
 from typing import Callable, Literal
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from hedge_fund.backtesting.models import EXPLORATORY_LIMITATIONS
 from hedge_fund.brokers.sim import SimBroker
 from hedge_fund.data.protocol import DataClient
 from hedge_fund.data.sessions import previous_day, session_closes
@@ -96,6 +97,10 @@ class FundBacktestResult(BaseModel):
     benchmark_nav: list[float]        # benchmark scaled to the same capital
     metrics: FundBacktestMetrics
     records: list[SessionRecord]      # one per session, in order
+    data_source: str = "unspecified"
+    currency: str = "BRL"
+    historical_reliability: Literal["exploratory"] = "exploratory"
+    limitations: list[str] = Field(default_factory=lambda: list(EXPLORATORY_LIMITATIONS))
 
     @property
     def cycles(self) -> list[CycleRecord]:
@@ -158,6 +163,8 @@ def backtest_fund(
         dates=dates, nav=nav, benchmark_nav=benchmark_nav,
         metrics=performance_metrics(spec.capital, dates, nav, benchmark_nav, cycles),
         records=records,
+        data_source=getattr(data_client, "source", "unspecified"),
+        currency=getattr(data_client, "currency", "BRL"),
     )
 
 

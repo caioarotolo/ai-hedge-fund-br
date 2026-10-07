@@ -2,12 +2,12 @@
 
 This is the main orchestration module. The pipeline:
 
-    1. Fetch SPY prices once (market benchmark for all tickers).
+    1. Fetch BOVA11 prices once (market benchmark for all tickers).
     2. For each ticker:
        a. Get earnings history from FD API.
        b. Filter out retrospective rows (45-day rule).
        c. Fetch stock prices (one call per ticker, wide date range).
-       d. Build aligned return series (stock ∩ SPY trading days).
+       d. Build aligned return series (stock ∩ BOVA11 trading days).
        e. For each earnings event:
           - Fit market model on estimation window [-250, -11].
           - Compute abnormal returns on event window [0, +20].
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # --- Configuration ---
 # These could become function params later, but are constants for v0.
 
-_MARKET_TICKER = "SPY"             # market proxy for the market model
+_MARKET_TICKER = "BOVA11"             # market proxy for the market model
 _ESTIMATION_START = -250           # start of estimation window (trading days before event)
 _ESTIMATION_END = -11              # end of estimation window (10-day buffer avoids contamination)
 _MIN_ESTIMATION_DAYS = 200         # skip events without enough pre-event price history
@@ -78,7 +78,7 @@ def compute_car(
     """Compute CARs for earnings events across multiple tickers.
 
     This is the main entry point. It:
-    1. Fetches SPY prices once (shared across all tickers).
+    1. Fetches BOVA11 prices once (shared across all tickers).
     2. Loops through tickers, computing per-event CARs.
     3. Aggregates results cross-sectionally by source_type.
 
@@ -86,7 +86,7 @@ def compute_car(
         tickers:              List of stock ticker symbols.
         data_client:            Data provider (any DataClient; FDClient in production).
         earnings_limit:       Max earnings periods to fetch per ticker.
-        market_ticker:        Market benchmark ticker (default "SPY").
+        market_ticker:        Market benchmark ticker (default "BOVA11").
         n_bootstrap:          Number of bootstrap resamples for CIs.
         rng_seed:             Seed for bootstrap reproducibility (None = random).
         require_eps_surprise: If True, only include events with BEAT/MISS/MEET label.
@@ -94,13 +94,17 @@ def compute_car(
     Returns:
         EventStudyResult with per-event CARs, aggregate stats, and skipped tickers.
     """
+    if (getattr(data_client, 'source', None) == 'openmarkets'
+            and getattr(data_client, 'earnings_surprises', None) is False):
+        from hedge_fund.data.client import CoverageError
+        raise CoverageError('OpenMarkets lacks dated earnings announcements and EPS consensus for event studies')
     today = date.today().isoformat()
 
-    # Fetch market (SPY) prices once — covers all tickers.
+    # Fetch market (BOVA11) prices once — covers all tickers.
     # Start from 2023-01-01 to have enough history for any event's estimation window.
     spy_prices = data_client.get_prices(market_ticker, "2023-01-01", today)
     if not spy_prices:
-        logger.warning("No SPY prices returned — cannot compute CARs")
+        logger.warning("No BOVA11 prices returned — cannot compute CARs")
         return EventStudyResult(skipped_tickers=list(tickers))
 
     # Build a lookup: date string -> closing price
@@ -147,7 +151,7 @@ def _compute_ticker_events(
     1. Fetch earnings history (list of filings: 8-K, 10-Q, 10-K, 20-F).
     2. Filter out retrospective rows (45-day rule).
     3. Fetch stock prices for the widest needed date range (one API call).
-    4. Build aligned return series where both stock and SPY have data.
+    4. Build aligned return series where both stock and BOVA11 have data.
     5. Process each event through the market model pipeline.
     """
     # Step 1: Get earnings filings for this ticker
@@ -174,7 +178,7 @@ def _compute_ticker_events(
         return []
 
     # Step 4: Build aligned return series.
-    # Only use dates where BOTH stock and SPY have closing prices.
+    # Only use dates where BOTH stock and BOVA11 have closing prices.
     stock_closes = {p.time[:10]: p.close for p in stock_prices}
     trading_days = sorted(set(stock_closes) & set(spy_closes))
     if len(trading_days) < _MIN_ESTIMATION_DAYS + _MAX_EVENT_WINDOW:

@@ -1,7 +1,7 @@
-"""v2 data pipeline — data provider protocol, FD client, and response models."""
+"""Data protocol, OpenMarkets adapter, cache and normalized response models."""
 
 from hedge_fund.data.cached import CachedDataClient
-from hedge_fund.data.client import FDClient, FDClientError
+from hedge_fund.data.client import CoverageError, FDClient, FDClientError, OpenMarketsClient, OpenMarketsError
 from hedge_fund.data.models import (
     CompanyFacts,
     CompanyNews,
@@ -17,6 +17,9 @@ from hedge_fund.data.protocol import DataClient
 
 __all__ = [
     "CachedDataClient",
+    "CoverageError",
+    "OpenMarketsClient",
+    "OpenMarketsError",
     "CompanyFacts",
     "CompanyNews",
     "DataClient",

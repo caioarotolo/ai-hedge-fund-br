@@ -53,7 +53,7 @@ def test_defaults_applied():
     assert spec.strategies[0].weight == 1.0
     assert spec.capital == 100_000.0
     assert spec.rebalance == "weekly"
-    assert spec.benchmark == "SPY"
+    assert spec.benchmark == "BOVA11"
 
 
 def test_rebalance_cadence_validated():
@@ -90,6 +90,7 @@ def test_unversioned_files_are_rejected_without_changes(tmp_path):
 
 def test_normalize_universe():
     assert normalize_universe(["aapl", " msft ", "AAPL"]) == ["AAPL", "MSFT"]
+    assert normalize_universe(['petr4.sa', 'PETR4', ' vale3.SA ']) == ['PETR4', 'VALE3']
     with pytest.raises(ValueError, match="universe is empty"):
         normalize_universe([])
     with pytest.raises(ValueError, match="universe is empty"):

@@ -42,6 +42,8 @@ _MILLION = 1_000_000.0
 class MEBreakpoints:
     """Monthly market-cap breakpoints, indexed by YYYYMM."""
 
+    currency = 'USD'
+
     def __init__(self, rows: dict[str, tuple[float, ...]]) -> None:
         if not rows:
             raise ValueError("breakpoints table is empty")

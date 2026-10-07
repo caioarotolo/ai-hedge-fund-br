@@ -22,9 +22,10 @@ def offline(tmp_path, monkeypatch):
     tick_module = importlib.import_module("hedge_fund.paper.tick")
 
     class OfflineClient(FakeDataClient):
+        source = "synthetic-test-fixture"
         def __init__(self):
             super().__init__({ticker: {"2025-01-06": 100, "2025-01-07": 100, "2025-01-08": 110, "2025-01-13": 110}
-                              for ticker in ("AAPL", "MSFT", "SPY")})
+                              for ticker in ("AAPL", "MSFT", "BOVA11")})
         def __enter__(self):
             return self
         def __exit__(self, *args):
@@ -163,7 +164,7 @@ def test_paper_flow_create_tick_status_halt_resume(tmp_path, monkeypatch, capsys
     with pytest.raises(SystemExit) as exc:
         _main(monkeypatch, "paper", "tick", "alpha")  # nothing new has closed
     assert exc.value.code == 1
-    assert "no completed SPY session after 2025-01-06" in capsys.readouterr().err
+    assert "no completed BOVA11 session after 2025-01-06" in capsys.readouterr().err
 
     set_today("2025-01-08")
     _main(monkeypatch, "paper", "tick", "alpha")

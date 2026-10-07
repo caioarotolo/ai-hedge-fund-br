@@ -114,6 +114,17 @@ class PEADModel(QuantModel):
         report period are dropped (the extractor sometimes parses
         prior-quarter comparison data from a current 8-K).
         """
+        is_openmarkets = (
+            str(getattr(data_client, "provider", "")).lower() == "openmarkets"
+            or data_client.__class__.__name__ == "OpenMarketsClient"
+        )
+        if is_openmarkets and getattr(data_client, "earnings_surprises", None) is False:
+            raise ValueError(
+                f"{ticker}: PEAD is unsupported by OpenMarkets: no verified "
+                "consensus EPS estimates and dated earnings announcements. "
+                "CVM ITR/DFP filings cannot be treated as US 8-K surprises."
+            )
+
         if ticker in self._cache:
             records = self._cache[ticker]
         else:
@@ -141,6 +152,14 @@ class PEADModel(QuantModel):
             key = (priority, r.filing_date)
             if r.report_period not in best or key < best[r.report_period][:2]:
                 best[r.report_period] = (priority, r.filing_date, r)
+
+        if is_openmarkets and not best:
+            raise ValueError(
+                f"{ticker}: OpenMarkets returned no qualifying PEAD earnings "
+                "announcements with verified EPS consensus surprises and "
+                "publication dates; an all-neutral result would conceal a "
+                "coverage gap. CVM ITR/DFP cannot be relabeled as 8-K."
+            )
 
         return [
             {

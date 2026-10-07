@@ -1,6 +1,7 @@
 """FundamentalsSnapshot tests — mocked data client, no network."""
 
 import re
+from datetime import date
 
 import pytest
 
@@ -72,7 +73,7 @@ def test_aggregates():
     metrics = _history(4)
     # oldest gross margin 0.30, newest 0.40 -> trend +0.10
     metrics[-1] = _metric("2024-03-31", gross_margin=0.30)
-    # BVPS oldest 8.0 -> newest 10.0 over 3 quarters (0.75y)
+    # Annualize the endpoint values using their elapsed reporting dates.
     metrics[-1].book_value_per_share = 8.0
     client = MockDataClient(metrics=metrics)
 
@@ -82,7 +83,20 @@ def test_aggregates():
     assert snap.gross_margin_trend == pytest.approx(0.10)
     assert snap.debt_to_equity_latest == pytest.approx(0.5)
     assert snap.market_cap_latest == pytest.approx(1e9)
-    assert snap.bvps_cagr == pytest.approx((10.0 / 8.0) ** (1 / 0.75) - 1, abs=1e-4)
+    years = (date(2024, 12, 31) - date(2024, 3, 31)).days / 365.25
+    assert snap.bvps_cagr == pytest.approx((10.0 / 8.0) ** (1 / years) - 1, abs=1e-4)
+
+
+def test_cagr_preserves_elapsed_time_with_missing_values_and_periods():
+    metrics = [
+        _metric("2024-12-31", book_value_per_share=12.0),
+        _metric("2024-06-30", book_value_per_share=None),
+        _metric("2023-12-31", book_value_per_share=10.0),
+        _metric("2023-09-30", book_value_per_share=None),
+    ]
+    snap = build_snapshot("TEST", "2025-01-15", MockDataClient(metrics=metrics))
+    years = (date(2024, 12, 31) - date(2023, 12, 31)).days / 365.25
+    assert snap.bvps_cagr == pytest.approx(1.2 ** (1 / years) - 1, abs=1e-4)
 
 
 def test_market_cap_comes_from_pit_metrics_not_facts():
@@ -190,6 +204,14 @@ def test_blind_size_is_a_percentile_only_when_breakpoints_are_given():
     assert "Size:" not in without.render(blind=True)
 
 
+def test_brl_market_cap_cannot_use_usd_size_thresholds():
+    metrics = _history()
+    for metric in metrics:
+        metric.currency = 'BRL'
+    with pytest.raises(ValueError, match='BRL cannot be compared to USD'):
+        build_snapshot('PETR4', '2025-01-15', MockDataClient(metrics=metrics), breakpoints=BREAKPOINTS)
+
+
 def test_blind_size_below_the_fifth_percentile_and_missing_cap():
     tiny = _history()
     for metric in tiny:
@@ -225,6 +247,29 @@ def test_eps_growth_yoy():
         metric.earnings_per_share = 2.0
     loss[4].earnings_per_share = -1.0
     assert build_snapshot("TEST", "2025-01-15", MockDataClient(metrics=loss)).eps_growth_yoy is None
+
+
+@pytest.mark.parametrize("year_ago_eps,expected", [(4.0, 1.0), (None, None)])
+def test_eps_yoy_finds_calendar_quarter_with_missing_intervening_rows(year_ago_eps, expected):
+    metrics = [
+        _metric("2024-12-31", earnings_per_share=8.0),
+        _metric("2024-06-30", earnings_per_share=6.0),
+        _metric("2023-12-31", earnings_per_share=year_ago_eps),
+        _metric("2023-09-30", earnings_per_share=3.0),
+        _metric("2023-06-30", earnings_per_share=2.0),
+    ]
+    snap = build_snapshot("TEST", "2025-01-15", MockDataClient(metrics=metrics))
+    assert snap.eps_growth_yoy == expected
+
+
+def test_eps_yoy_does_not_substitute_another_quarter_for_missing_year_ago_period():
+    metrics = _history()
+    metrics.pop(4)  # The latest quarter's year-ago observation is unavailable.
+    for metric in metrics:
+        metric.earnings_per_share = 2.0
+    metrics[0].earnings_per_share = 8.0
+    snap = build_snapshot("TEST", "2025-01-15", MockDataClient(metrics=metrics))
+    assert snap.eps_growth_yoy is None
 
 
 def test_blind_index_dashes_without_a_positive_base_and_keeps_sign():

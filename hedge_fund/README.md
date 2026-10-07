@@ -48,7 +48,7 @@ made at session T's close is executed at T+1's close, in both modes.
 poetry install                          # dependencies
 
 # .env needs (at repo root):
-#   FINANCIAL_DATASETS_API_KEY=...      # market/fundamentals data
+#   OPENMARKETS_API_KEY=...      # OpenMarkets data (authenticated coverage must be checked)
 #   ANTHROPIC_API_KEY=...               # only for LLM agents (Buffett)
 
 # THE command. No arguments: launch the interactive app (a Textual TUI).
@@ -109,7 +109,7 @@ Data (point-in-time) → Alpha models → Portfolio → Risk → Execution → L
 
 | Module | What | Status |
 |--------|------|--------|
-| `data/` | `DataClient` protocol, Financial Datasets client, disk cache | ✅ |
+| `data/` | `DataClient` protocol, OpenMarkets REST adapter, disk cache | ✅ |
 | `signals/` | `AlphaModel` interface, PEAD, `LLMAgent` + 5 investor personas | ✅ |
 | `llm/` | LLM provider protocol, Anthropic client, prompt cache | ✅ |
 | `features/` | Point-in-time fundamentals snapshot (more features planned) | ◐ |

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 import numpy as np
 import pytest
 
@@ -173,41 +171,18 @@ class TestPlots:
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — require API key
+# Unsupported production capability — no credentials or live network.
 # ---------------------------------------------------------------------------
 
-pytestmark_live = pytest.mark.skipif(
-    not os.environ.get("FINANCIAL_DATASETS_API_KEY"),
-    reason="live tests require FINANCIAL_DATASETS_API_KEY",
-)
 
-
-@pytest.fixture(scope="module")
-def fd():
-    from hedge_fund.data import FDClient
-    with FDClient() as client:
-        yield client
-
-
-@pytestmark_live
-def test_compute_car_live(fd):
+@pytest.mark.parametrize("tickers", [["PETR4"], ["PETR4", "VALE3", "ITUB4"]])
+def test_event_study_refuses_unverified_openmarkets_announcements(monkeypatch, tickers):
+    from hedge_fund.data.client import CoverageError, OpenMarketsClient
+    from hedge_fund.data.models import Price
     from hedge_fund.event_study import compute_car
-
-    result = compute_car(["AAPL"], fd, earnings_limit=4, rng_seed=42)
-    assert len(result.events) > 0, "Expected at least one event for AAPL"
-    for e in result.events:
-        assert e.ticker == "AAPL"
-        assert e.source_type in {"8-K", "10-Q", "10-K", "20-F"}
-        if e.car_0_1 is not None:
-            assert np.isfinite(e.car_0_1)
-
-
-@pytestmark_live
-def test_compute_car_multi_ticker(fd):
-    from hedge_fund.event_study import compute_car
-
-    result = compute_car(["AAPL", "MSFT", "NVDA"], fd, earnings_limit=4, rng_seed=42)
-    tickers_seen = {e.ticker for e in result.events}
-    assert len(tickers_seen) >= 2, f"Expected multiple tickers, got {tickers_seen}"
-    source_types_seen = {e.source_type for e in result.events}
-    assert len(source_types_seen) >= 1
+    with OpenMarketsClient(api_key="synthetic-key", request_interval=0) as client:
+        monkeypatch.setattr(client, "get_prices", lambda *args: [
+            Price(open=30, high=31, low=29, close=30, volume=100,
+                  time="2024-06-03", data_source="synthetic-test-fixture")])
+        with pytest.raises(CoverageError, match="dated earnings announcements"):
+            compute_car(tickers, client, earnings_limit=4, rng_seed=42)

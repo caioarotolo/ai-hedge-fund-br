@@ -65,6 +65,19 @@ def test_every_supported_provider_constructs(provider, keyed):
     assert hasattr(llm, "complete")
 
 
+def test_openai_factory_passes_max_tokens(keyed, monkeypatch):
+    """OpenAI honors the output-token cap chosen by the caller."""
+    import langchain_openai
+
+    construct = Mock(return_value=Mock())
+    monkeypatch.setattr(langchain_openai, "ChatOpenAI", construct)
+
+    llm = make_llm("gpt-4.1-mini", max_tokens=32)
+
+    assert llm.model == "gpt-4.1-mini"
+    assert construct.call_args.kwargs["max_tokens"] == 32
+
+
 def test_registry_and_clients_agree():
     """Every provider in the registry is one we can actually reach — the
     picker greys out the rest, so a mismatch means a dead row or a broken run.
@@ -251,6 +264,7 @@ def test_cli_jev_cycle_and_saved_replay(tmp_path, monkeypatch, http, capsys):
     from hedge_fund.tui import keys
 
     class FinancialFixtures(MockDataClient):
+        source = "synthetic-test-fixture"
         def __enter__(self):
             return self
 
@@ -608,7 +622,7 @@ def test_legacy_clients_keep_keys_and_signal_shape(flavor, tmp_path):
     second = agent.predict("TEST", "2025-01-15", data)
     assert first.value == second.value == 0.8
     assert first.metadata["prompt_key"] == key
-    assert set(first.metadata) == {"signal", "confidence", "model", "prompt_key", "snapshot_hash", "cached", "abstained"}
+    assert set(first.metadata) == {"signal", "confidence", "model", "prompt_key", "snapshot_hash", "cached", "abstained", "point_in_time"}
     assert PromptCache(tmp_path).get(key)["parsed"] == json.loads(BULLISH)
     assert second.metadata["cached"] is True
 

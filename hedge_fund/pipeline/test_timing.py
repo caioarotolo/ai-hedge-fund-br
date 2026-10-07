@@ -42,7 +42,7 @@ def make_fund(analyst=None):
 
 
 def market(execution=MONDAY, price=200):
-    return FakeDataClient({"SPY": {FRIDAY: 100, execution: 101},
+    return FakeDataClient({"BOVA11": {FRIDAY: 100, execution: 101},
                            "A": {FRIDAY: 100, execution: price}})
 
 
@@ -176,7 +176,7 @@ def test_nonfinite_equity_fails_before_submission():
 
 
 @pytest.mark.parametrize("hour", [10, 23])
-def test_current_new_york_day_is_excluded_even_after_close(monkeypatch, hour):
+def test_current_sao_paulo_day_is_excluded_even_after_close(monkeypatch, hour):
     class Clock:
         @staticmethod
         def now(tz):
@@ -193,7 +193,7 @@ def test_current_new_york_day_is_excluded_even_after_close(monkeypatch, hour):
     broker.place_order.assert_not_called()
     # Yesterday is complete: the fund can still decide, and nothing executes.
     record = advance(fund, FundState.initial(10_000), "2024-06-09", broker,
-                     FakeDataClient({"SPY": {"2024-06-09": 100}, "A": {"2024-06-09": 100}}), ["A"])
+                     FakeDataClient({"BOVA11": {"2024-06-09": 100}, "A": {"2024-06-09": 100}}), ["A"])
     assert record.decision.as_of == "2024-06-09" and record.executed is None
 
 

@@ -10,6 +10,11 @@
     "provider": "Anthropic"
   },
   {
+    "display_name": "GPT-4.1 Mini",
+    "model_name": "gpt-4.1-mini",
+    "provider": "OpenAI"
+  },
+  {
     "display_name": "GPT-6 Sol",
     "model_name": "gpt-6-sol",
     "provider": "OpenAI"

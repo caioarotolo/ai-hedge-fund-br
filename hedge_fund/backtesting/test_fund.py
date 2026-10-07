@@ -77,7 +77,7 @@ FRIDAYS = ["2024-06-07", "2024-06-14", "2024-06-21"]
 
 # The first Monday's views execute on Tuesday at 200; later daily marks move NAV.
 SERIES = {
-    "SPY": {day: (100.0 if i < 9 else 102.0 if i < 14 else 101.0)
+    "BOVA11": {day: (100.0 if i < 9 else 102.0 if i < 14 else 101.0)
             for i, day in enumerate(WEEKDAYS)},
     "AAPL": {day: (200.0 if i < 9 else 210.0 if i < 14 else 190.0)
              for i, day in enumerate(WEEKDAYS)},
@@ -198,7 +198,7 @@ def test_universe_round_trips_onto_the_result():
 
 
 def test_missing_benchmark_raises():
-    series = {"AAPL": SERIES["AAPL"]}  # no SPY bars at all
+    series = {"AAPL": SERIES["AAPL"]}  # no BOVA11 bars at all
     with pytest.raises(ValueError, match="trading grid"):
         _run(series=series)
 
@@ -217,7 +217,7 @@ def test_grid_follows_mandate_cadence():
 def test_backtest_enforces_each_mode_with_mixed_analysts(mode):
     spec = _spec(strategies=[{"name": "mixed", "models": [{"name": "buffett"}, {"name": "druckenmiller"}], "blend": {"mode": mode}}])
     fund = Fund(spec, models={"mixed": [FakeAnalyst(name, {"AAPL": .8, "MSFT": -.6}) for name in ("buffett", "druckenmiller")]})
-    series = {"SPY": {day: 100 for day in FRIDAYS}, "AAPL": {day: 100 for day in FRIDAYS}, "MSFT": {day: 100 for day in FRIDAYS}}
+    series = {"BOVA11": {day: 100 for day in FRIDAYS}, "AAPL": {day: 100 for day in FRIDAYS}, "MSFT": {day: 100 for day in FRIDAYS}}
     result = backtest_fund(fund, FRIDAYS[0], FRIDAYS[-1], FakeDataClient(series), ["AAPL", "MSFT"])
     assert len(result.cycles) == 2  # three sessions in three ISO weeks: two executions
     assert result.nav == [100_000] * 3
@@ -283,10 +283,10 @@ def test_daily_sharpe_uses_consecutive_returns_without_initial_zero():
 
 def test_schedule_lists_rebalance_and_execution_sessions():
     from hedge_fund.backtesting.fund import build_schedule
-    schedule = build_schedule(FakeDataClient(SERIES), "SPY", WEEKDAYS[0], WEEKDAYS[-1], "weekly")
+    schedule = build_schedule(FakeDataClient(SERIES), "BOVA11", WEEKDAYS[0], WEEKDAYS[-1], "weekly")
     assert schedule.execution_dates == dict(zip(MONDAYS, TUESDAYS))
     assert schedule.assessment_dates == MONDAYS
-    daily = build_schedule(FakeDataClient(SERIES), "SPY", "2024-06-03", "2024-06-04", "daily")
+    daily = build_schedule(FakeDataClient(SERIES), "BOVA11", "2024-06-03", "2024-06-04", "daily")
     assert daily.execution_dates == {"2024-06-03": "2024-06-04", "2024-06-04": None}
     assert daily.assessment_dates == ["2024-06-03", "2024-06-04"]
 

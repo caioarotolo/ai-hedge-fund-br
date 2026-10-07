@@ -20,7 +20,9 @@ import os
 import shutil
 from pathlib import Path
 
-USER_DIR = Path.home() / ".hedge-fund"
+# An isolated data directory makes local research reproducible without
+# changing an existing user's mandates, ledgers, caches or credential file.
+USER_DIR = Path(os.environ.get("HEDGE_FUND_HOME", str(Path.home() / ".hedge-fund"))).expanduser()
 MANDATES_DIR = USER_DIR / "mandates"
 PAPER_DIR = USER_DIR / "paper"
 RESEARCH_DIR = USER_DIR / "research"

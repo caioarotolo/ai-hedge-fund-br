@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 
 from hedge_fund.data.protocol import DataClient
-from hedge_fund.features.breakpoints import MEBreakpoints, shared_breakpoints
+from hedge_fund.features.breakpoints import MEBreakpoints
 from hedge_fund.features.snapshot import FundamentalsSnapshot, InsufficientData, build_snapshot
 from hedge_fund.llm import LLMCallError, LLMClient, PromptCache, extract_json, make_llm, prompt_key
 from hedge_fund.models import Signal
@@ -52,9 +52,8 @@ class LLMAgent(AlphaModel):
         # Blind prompts withhold the ticker, industry, calendar dates and
         # dollar values so a backtest can't lean on what the LLM remembers
         # about the company (FundamentalsSnapshot.render). Size survives only
-        # as a market-cap percentile from a breakpoints table, loaded once per
-        # process on first use unless one is injected (tests). Backtests set
-        # blind; live runs don't and never touch the breakpoints.
+        # as a market-cap percentile only when a compatible table is explicitly
+        # injected. No automatic US/USD distribution is applied to BRL firms.
         self._blind = blind
         self._breakpoints = breakpoints
 
@@ -129,11 +128,7 @@ class LLMAgent(AlphaModel):
         (macro, news); when a second snapshot TYPE exists, extract the
         implicit interface (ticker/as_of/content_hash/render) into a
         Protocol — not before."""
-        breakpoints = None
-        if self._blind:
-            if self._breakpoints is None:
-                self._breakpoints = shared_breakpoints()
-            breakpoints = self._breakpoints
+        breakpoints = self._breakpoints if self._blind else None
         return build_snapshot(ticker, date, data_client, breakpoints=breakpoints)
 
     def build_user_prompt(self, snapshot: FundamentalsSnapshot) -> str:
@@ -186,6 +181,7 @@ class LLMAgent(AlphaModel):
                 "model": self._llm.model,
                 "prompt_key": key,
                 "snapshot_hash": snapshot.content_hash,
+                "point_in_time": snapshot.point_in_time,
                 "cached": cached,
                 "abstained": False,
                 **({"provider_metadata": parsed["provider_metadata"]}

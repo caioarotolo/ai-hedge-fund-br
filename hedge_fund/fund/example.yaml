@@ -5,8 +5,8 @@
 # staff, risk, capital, and cadence — and can be pointed at any names; the
 # universe is fixed when you backtest or deploy it (--universe).
 #
-#   aihf backtest ~/.hedge-fund/mandates/example.yaml --universe AAPL,MSFT
-#   aihf paper create alpha --mandate ~/.hedge-fund/mandates/example.yaml --universe AAPL,MSFT
+#   aihf backtest ~/.hedge-fund/mandates/example.yaml --universe PETR4,VALE3
+#   aihf paper create alpha --mandate ~/.hedge-fund/mandates/example.yaml --universe PETR4,VALE3
 #   aihf paper tick alpha
 #
 schema_version: 2
@@ -14,20 +14,15 @@ name: example-fund
 strategies:
   - name: deep-value          # discretionary pod: Graham-led, long-only
     blend: {mode: long_only}
-    weight: 0.6               # capital slice, relative to sibling strategies
+    weight: 1.0               # capital slice; BR fundamentals only
     models:
       - name: graham
         weight: 2.0
       - name: buffett
       - name: munger
-  - name: earnings-drift      # systematic pod: post-earnings drift
-    blend: {mode: long_short}
-    weight: 0.4
-    models:
-      - name: pead
 risk:
   max_position_pct: 0.25      # master risk: no single name above 25% of equity
   max_gross_exposure: 1.0     # unlevered, across the netted book
 capital: 100000
 rebalance: weekly             # daily | weekly | monthly — how often the fund trades
-benchmark: SPY                # measured against; also the backtest's trading-day grid
+benchmark: BOVA11             # B3 benchmark; also the backtest's trading-day grid

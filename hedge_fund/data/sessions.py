@@ -6,12 +6,19 @@ from zoneinfo import ZoneInfo
 
 from hedge_fund.data.protocol import DataClient
 
-NEW_YORK = ZoneInfo("America/New_York")
+SAO_PAULO = ZoneInfo("America/Sao_Paulo")
+# Compatibility for callers that imported the old constant. All market-date
+# calculations now follow B3's local timezone, including the disk cache.
+NEW_YORK = SAO_PAULO
 
 
 def completed_through() -> str:
-    """Exclude the current New York date, even after market close."""
-    return (datetime.now(NEW_YORK).date() - timedelta(days=1)).isoformat()
+    """Exclude the current São Paulo date, even after market close.
+
+    Sessions and holidays are subsequently derived from observed benchmark
+    bars; this cutoff never manufactures an exchange calendar.
+    """
+    return (datetime.now(SAO_PAULO).date() - timedelta(days=1)).isoformat()
 
 
 def previous_day(day: str) -> str:

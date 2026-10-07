@@ -1,96 +1,58 @@
-"""Week 1 data exploration — pull and inspect FD data for 5 tickers."""
+"""Opt-in live OpenMarkets coverage checks; no legacy-provider requests.
 
+Enable deliberately with OPENMARKETS_LIVE_TESTS=1 and a locally configured
+OPENMARKETS_API_KEY. These checks require an account with the requested access.
+Passing them confirms execution/coverage, not historical investment validity.
+"""
 import os
+
 import pytest
 
-from hedge_fund.data import FDClient
+from hedge_fund.data.client import OpenMarketsClient
 
-TICKERS = ["AAPL", "MSFT", "NVDA", "JPM", "XOM"]
-PRICE_START = "2024-01-01"
-PRICE_END = "2026-04-15"
+TICKERS = ["PETR4", "VALE3", "ITUB4"]
+PRICE_START = "2025-01-02"
+PRICE_END = "2025-01-31"
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("FINANCIAL_DATASETS_API_KEY"),
-    reason="live Financial Datasets smoke tests require FINANCIAL_DATASETS_API_KEY",
+    os.environ.get("OPENMARKETS_LIVE_TESTS") != "1" or not os.environ.get("OPENMARKETS_API_KEY"),
+    reason="opt-in live tests require OPENMARKETS_LIVE_TESTS=1 and OPENMARKETS_API_KEY",
 )
 
 
 @pytest.fixture(scope="module")
-def fd():
-    with FDClient() as client:
-        yield client
+def om():
+    with OpenMarketsClient() as adapter:
+        yield adapter
 
 
 @pytest.mark.parametrize("ticker", TICKERS)
-def test_prices(fd: FDClient, ticker: str) -> None:
-    prices = fd.get_prices(ticker, PRICE_START, PRICE_END)
-    assert len(prices) > 0, f"No prices for {ticker}"
-    dates = [p.time for p in prices]
-    print(f"  {ticker} prices: {len(prices)} bars  [{dates[0]} → {dates[-1]}]")
+def test_prices(om, ticker):
+    bars = om.get_prices(ticker, PRICE_START, PRICE_END)
+    assert bars, f"No daily OHLCV for {ticker}"
+    assert all(bar.currency == "BRL" and bar.data_source == "openmarkets" for bar in bars)
+    assert all(bar.price_basis == "adjusted" and bar.close > 0 for bar in bars)
+    assert [bar.time for bar in bars] == sorted({bar.time for bar in bars})
 
 
 @pytest.mark.parametrize("ticker", TICKERS)
-def test_financial_metrics(fd: FDClient, ticker: str) -> None:
-    metrics = fd.get_financial_metrics(ticker, PRICE_END, period="ttm", limit=4)
-    assert len(metrics) > 0, f"No metrics for {ticker}"
-    m = metrics[0]
-    populated = [
-        f for f in ["market_cap", "price_to_earnings_ratio", "return_on_equity",
-                     "gross_margin", "debt_to_equity", "revenue_growth"]
-        if getattr(m, f) is not None
-    ]
-    periods = [m.report_period for m in metrics]
-    print(f"  {ticker} metrics: {len(metrics)} periods  [{periods[-1]} → {periods[0]}]")
-    print(f"    Key fields: {', '.join(populated)}")
+def test_financial_metrics(om, ticker):
+    rows = om.get_financial_metrics(ticker, PRICE_END, period="ttm", limit=4)
+    assert rows, f"No historical mapped metrics for {ticker}"
+    assert all(row.report_period <= PRICE_END for row in rows)
+    assert all(row.currency == "BRL" and row.data_source == "openmarkets" for row in rows)
+    assert all(row.point_in_time is False and row.filing_date
+               and row.filing_date <= PRICE_END for row in rows)
+    assert any(row.market_cap is not None or row.price_to_earnings_ratio is not None for row in rows)
 
 
 @pytest.mark.parametrize("ticker", TICKERS)
-def test_earnings(fd: FDClient, ticker: str) -> None:
-    earnings = fd.get_earnings(ticker)
-    assert earnings is not None, f"No earnings for {ticker}"
-    print(f"  {ticker} earnings: report={earnings.report_period}  fiscal={earnings.fiscal_period}")
-    if earnings.quarterly:
-        q = earnings.quarterly
-        print(f"    Q: rev={q.revenue}  EPS={q.earnings_per_share}  surprise={q.eps_surprise}")
+def test_company_facts(om, ticker):
+    facts = om.get_company_facts(ticker)
+    assert facts is not None and facts.name and facts.exchange == "B3"
 
 
 @pytest.mark.parametrize("ticker", TICKERS)
-def test_news(fd: FDClient, ticker: str) -> None:
-    news = fd.get_news(ticker, PRICE_END, limit=5)
-    assert len(news) > 0, f"No news for {ticker}"
-    sources = set(n.source for n in news if n.source)
-    print(f"  {ticker} news: {len(news)} articles  sources={sources}")
-
-
-@pytest.mark.parametrize("ticker", TICKERS)
-def test_insider_trades(fd: FDClient, ticker: str) -> None:
-    trades = fd.get_insider_trades(ticker, PRICE_END, limit=5)
-    assert len(trades) > 0, f"No insider trades for {ticker}"
-    names = set(t.name for t in trades)
-    print(f"  {ticker} insider trades: {len(trades)} records  insiders={names}")
-
-
-@pytest.mark.parametrize("ticker", TICKERS)
-def test_company_facts(fd: FDClient, ticker: str) -> None:
-    facts = fd.get_company_facts(ticker)
-    assert facts is not None, f"No facts for {ticker}"
-    assert facts.sector is not None, f"No sector for {ticker}"
-    print(f"  {ticker}: {facts.name}  sector={facts.sector}  exchange={facts.exchange}")
-
-
-@pytest.mark.parametrize("ticker", TICKERS)
-def test_earnings_history(fd: FDClient, ticker: str) -> None:
-    records = fd.get_earnings_history(ticker, limit=4)
-    assert len(records) >= 1, f"No earnings history for {ticker}"
-
-    valid_source_types = {"8-K", "10-Q", "10-K", "20-F"}
-    for r in records:
-        assert r.source_type in valid_source_types, f"Bad source_type: {r.source_type}"
-        if r.filing_datetime is not None:
-            assert r.filing_date == r.filing_datetime[:10], (
-                f"filing_date/datetime mismatch: {r.filing_date} vs {r.filing_datetime}"
-            )
-
-    print(f"  {ticker} earnings history: {len(records)} records")
-    for r in records:
-        print(f"    {r.report_period}  {r.source_type:5s}  {r.filing_date}  q={'yes' if r.quarterly else 'no'}  a={'yes' if r.annual else 'no'}")
+def test_coverage(om, ticker):
+    coverage = om.get_coverage(ticker)
+    assert coverage["data"], f"Empty coverage report for {ticker}"

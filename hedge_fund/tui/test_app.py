@@ -40,7 +40,7 @@ def isolated_configuration(tmp_path, monkeypatch):
     monkeypatch.setattr(keys, "ENV_PATH", saved)
     monkeypatch.setattr(ui, "ENV_PATH", saved)
     monkeypatch.setattr(ui, "ensure_mandates_dir", lambda: mandates)
-    for variable in (*PROVIDER_ENV_VARS.values(), "MOONSHOT_API_KEY", "FINANCIAL_DATASETS_API_KEY", "HEDGE_FUND_LLM_MODEL", "UNRELATED_KEY"):
+    for variable in (*PROVIDER_ENV_VARS.values(), "MOONSHOT_API_KEY", "OPENMARKETS_API_KEY", "HEDGE_FUND_LLM_MODEL", "UNRELATED_KEY"):
         # Track even initially absent keys, since dotenv and the UI set them
         # directly rather than through monkeypatch.
         monkeypatch.setenv(variable, "")
@@ -88,7 +88,7 @@ def _record(signal):
 def _session(session, *, executed=None, decision=None, nav=100000, positions=None, marks=None, prev_hash=None):
     record = SessionRecord(
         fund="test", session=session, universe=["TEST"], nav=nav, cash=nav - sum((positions or {}).get(t, 0) * (marks or {}).get(t, 0) for t in (positions or {})),
-        positions=positions or {}, marks=marks or {}, benchmark="SPY", benchmark_close=100.0,
+        positions=positions or {}, marks=marks or {}, benchmark="BOVA11", benchmark_close=100.0,
         rebalance=decision is not None, executed=executed, decision=decision,
         prev_hash=prev_hash, code_version="test", mandate_hash="m",
     )
@@ -134,7 +134,7 @@ def test_picker_and_masked_key_save_or_cancel(save, isolated_configuration):
 
 
 def test_missing_key_gate_save_resumes_and_cancel_does_not(monkeypatch, isolated_configuration):
-    monkeypatch.setenv("FINANCIAL_DATASETS_API_KEY", "fixture-fd-key")
+    monkeypatch.setenv("OPENMARKETS_API_KEY", "fixture-om-key")
     monkeypatch.setenv("HEDGE_FUND_LLM_MODEL", "jev-1.13.0")
 
     async def scenario():
@@ -450,9 +450,9 @@ def test_run_plan_says_exactly_what_the_run_will_do():
     assert "flat — no eligible shorts to balance the longs" in overview
     # Nothing due: when the next close is, Friday rolling to Monday.
     plan = ui._run_plan("alpha", _state(last_session="2025-01-17"), None, spec).plain
-    assert plan.startswith("Up to date through 2025-01-17.  Next session closes 2025-01-20 at 4pm ET.")
+    assert plan.startswith("Up to date through 2025-01-17.  Next session closes 2025-01-20 at the observed B3 session close (São Paulo time).")
     assert "Run 2025-01-17 again?" in plan and "recorded session is replaced" in plan
-    assert ui._run_plan("alpha", _state(), None, spec).plain == "No completed SPY session to run yet."
+    assert ui._run_plan("alpha", _state(), None, spec).plain == "No completed BOVA11 session to run yet."
 
 
 def test_paper_screen_runs_through_the_approval_step(monkeypatch):
@@ -464,7 +464,7 @@ def test_paper_screen_runs_through_the_approval_step(monkeypatch):
     due = {"value": "2025-01-21"}
     monkeypatch.setattr(ui, "FDClient", lambda: Mock(__enter__=lambda s: s, __exit__=lambda s, *a: None))
     monkeypatch.setattr(ui, "next_session", lambda data, benchmark, last: due["value"])
-    monkeypatch.setenv("FINANCIAL_DATASETS_API_KEY", "x")
+    monkeypatch.setenv("OPENMARKETS_API_KEY", "x")
     monkeypatch.setenv("HEDGE_FUND_LLM_MODEL", "jev-1.13.0")
     monkeypatch.setenv("TYPESAFE_API_KEY", "x")
     started: list = []
@@ -520,7 +520,7 @@ def test_paper_screen_runs_through_the_approval_step(monkeypatch):
 @pytest.mark.parametrize("newest_version", [None, 2])
 def test_latest_backtest_sets_headline_regardless_of_version(newest_version):
     spec = _spec(["pead"])
-    receipt = {"fund": "test", "start": "2025-01-01", "end": "2025-02-01", "benchmark": "SPY",
+    receipt = {"fund": "test", "start": "2025-01-01", "end": "2025-02-01", "benchmark": "BOVA11",
                "metrics": {"total_return_pct": .5, "annualized_return_pct": .5,
                            "sharpe_ratio": 2, "max_drawdown_pct": .1,
                            "benchmark_return_pct": .1, "excess_return_pct": .4, "n_cycles": 5}}
@@ -531,7 +531,7 @@ def test_latest_backtest_sets_headline_regardless_of_version(newest_version):
     os.utime(older, (1000, 1000))
     original = older.read_bytes()
     older_summary = ui._summarize(older, 1000)
-    assert ui._last_score("test") == (.5, .4, "SPY")
+    assert ui._last_score("test") == (.5, .4, "BOVA11")
     assert "LATEST BACKTEST" in _render(ui._fund_detail(spec, [older_summary]))
 
     receipt.pop("schema_version", None)
@@ -542,7 +542,7 @@ def test_latest_backtest_sets_headline_regardless_of_version(newest_version):
     newer.write_text(json.dumps(receipt))
     os.utime(newer, (2000, 2000))
     newer_summary = ui._summarize(newer, 2000)
-    assert ui._last_score("test") == (.3, .2, "SPY")
+    assert ui._last_score("test") == (.3, .2, "BOVA11")
     detail = _render(ui._fund_detail(spec, [newer_summary, older_summary]))
     headline = detail.split("\nBACKTESTS")[0]
     assert "LATEST BACKTEST" in headline and "30.0%" in headline
@@ -551,7 +551,7 @@ def test_latest_backtest_sets_headline_regardless_of_version(newest_version):
 
 def test_research_history_is_matched_on_the_fund_field_not_the_filename_prefix():
     """`alpha` must not pick up `alpha-2`'s backtests: names can be prefixes."""
-    receipt = {"fund": "alpha-2", "start": "2025-01-01", "end": "2025-02-01", "benchmark": "SPY",
+    receipt = {"fund": "alpha-2", "start": "2025-01-01", "end": "2025-02-01", "benchmark": "BOVA11",
                "metrics": {"total_return_pct": .5, "annualized_return_pct": .5, "sharpe_ratio": 2,
                            "max_drawdown_pct": .1, "benchmark_return_pct": .1, "excess_return_pct": .4, "n_cycles": 5}}
     (ui.RESEARCH_DIR / "alpha-2-2025-01-01-2025-02-01-x.json").write_text(json.dumps(receipt))
@@ -570,9 +570,9 @@ def test_portfolio_report_explains_rounding_scaling_and_flat_strategies():
     record.marks = {"A": 300, "B": 700}
     record.risk_scale_factor = .5
     text = _render(ui._portfolio_detail(record))
-    assert "Target net $+0.00" in text
-    assert "Actual net $-100.00" in text
-    assert "Difference $-100.00" in text
+    assert "Target net R$+0.00" in text
+    assert "Actual net R$-100.00" in text
+    assert "Difference R$-100.00" in text
     assert "scaled all strategy targets to 50.0%" in text
     assert "Whole-share holdings can differ" in text
     record.positions = {}
@@ -620,7 +620,7 @@ def test_session_report_separates_the_executed_cycle_from_the_new_decision(size,
             menu = screen.query_one("#report-nav", OptionList)
             ids = [menu.get_option_at_index(i).id for i in range(menu.option_count)]
             assert "alpha" in head and "session 2025-01-20" in head
-            assert "NAV $100,000.00" in footer
+            assert "NAV R$100,000.00" in footer
             if what in ("executed", "both"):
                 assert "executed the 2025-01-15 decision (refreshed 2025-01-19)" in head
                 assert "x:sec:orders" in ids and "x:sec:portfolio" in ids
@@ -842,7 +842,7 @@ def test_builder_replaces_a_taken_name_only_after_yes_and_only_at_the_end():
 def test_builder_paper_mode_run_its_first_session_opens_the_approval_step(monkeypatch):
     monkeypatch.setattr(ui, "FDClient", lambda: Mock(__enter__=lambda s: s, __exit__=lambda s, *a: None))
     monkeypatch.setattr(ui, "next_session", lambda data, benchmark, last: "2025-01-21")
-    for variable in ("FINANCIAL_DATASETS_API_KEY", "TYPESAFE_API_KEY"):
+    for variable in ("OPENMARKETS_API_KEY", "TYPESAFE_API_KEY"):
         monkeypatch.setenv(variable, "x")
     monkeypatch.setenv("HEDGE_FUND_LLM_MODEL", "jev-1.13.0")
 
@@ -890,7 +890,7 @@ def test_backtest_daily_board_matches_final_metrics_and_uses_fill_dates(size, tm
     metrics = performance_metrics(100000, dates, nav, benchmark_nav, [record])
     sessions = [_session(dates[0]), _session(dates[1], executed=record), _session(dates[2], nav=90000)]
     result = FundBacktestResult(fund=record.fund, start=dates[0], end=dates[-1], rebalance="weekly",
-                                benchmark="SPY", universe=["TEST"], capital=100000, dates=dates,
+                                benchmark="BOVA11", universe=["TEST"], capital=100000, dates=dates,
                                 nav=nav, benchmark_nav=benchmark_nav, records=sessions, metrics=metrics)
     async def scenario():
         app = ui.HedgeFundApp()

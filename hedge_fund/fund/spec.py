@@ -88,14 +88,14 @@ class FundSpec(BaseModel):
         description="rebalance frequency used by the backtester",
     )
     benchmark: str = Field(
-        default="SPY",
+        default="BOVA11",
         description="what the fund measures itself against; also the source " "of the backtest's trading-day grid",
     )
 
     @field_validator("benchmark")
     @classmethod
     def _uppercase_benchmark(cls, ticker: str) -> str:
-        return ticker.upper()
+        return normalize_universe([ticker])[0]
 
     @field_validator("strategies")
     @classmethod
@@ -108,13 +108,15 @@ class FundSpec(BaseModel):
 
 
 def normalize_universe(tickers: list[str]) -> list[str]:
-    """Strip, uppercase, and deduplicate tickers while preserving their order.
+    """Normalize B3/Yahoo suffixes and deduplicate, preserving ticker order.
 
     Raise ValueError if no nonempty tickers remain.
     """
     universe: list[str] = []
     for ticker in tickers:
         upper = ticker.strip().upper()
+        if upper.endswith('.SA'):
+            upper = upper[:-3]
         if upper and upper not in universe:
             universe.append(upper)
     if not universe:

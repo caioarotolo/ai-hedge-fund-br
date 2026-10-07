@@ -281,10 +281,10 @@ def _demand_run_keys(app, resume) -> bool:
     this gate so the next missing key is asked for in turn. Ask here, not
     deep inside a worker thread: a run that dies on a missing credential has
     already spent minutes of warming."""
-    if not os.environ.get("FINANCIAL_DATASETS_API_KEY"):
+    if not os.environ.get("OPENMARKETS_API_KEY"):
         app.push_screen(
-            KeyPromptScreen("Financial Datasets",
-                            "FINANCIAL_DATASETS_API_KEY"),
+            KeyPromptScreen("OpenMarkets",
+                            "OPENMARKETS_API_KEY"),
             lambda saved: resume() if saved else None)
         return False
     provider = provider_for(os.environ.get("HEDGE_FUND_LLM_MODEL", ""))
@@ -678,7 +678,7 @@ def _summarize(path: Path, mtime: float) -> dict | None:
             "kind": "backtest", "mtime": mtime, "fund": d.get("fund", ""),
             "universe": d.get("universe", []),
             "start": d.get("start", ""), "end": d.get("end", ""),
-            "benchmark": d.get("benchmark", "SPY"),
+            "benchmark": d.get("benchmark", "BOVA11"),
             "total": m["total_return_pct"],
             "annualized": m["annualized_return_pct"],
             "sharpe": m["sharpe_ratio"], "maxdd": m["max_drawdown_pct"],
@@ -748,7 +748,7 @@ def _fund_detail(spec: FundSpec, history: list[dict]) -> Group:
     staff = ", ".join(s.title for s in spec.strategies)
     parts: list = [
         Text(spec.name, style=f"bold {BRIGHT}"),
-        Text(f"{staff}  ·  {spec.rebalance}  ·  ${spec.capital:,.0f}", style=MUTED),
+        Text(f"{staff}  ·  {spec.rebalance}  ·  R${spec.capital:,.0f}", style=MUTED),
     ]
     parts.extend(Text(f"{s.title}: {strategy_description(s)}", style=MUTED) for s in spec.strategies)
 
@@ -1120,7 +1120,7 @@ def _session_book(record: SessionRecord) -> Group:
                 else Text("SHORT", style=f"bold {RED}"))
         tone = GREEN if value >= 0 else RED
         table.add_row(ticker, side, f"{shares:+d}",
-                      Text(f"${value:+,.0f}", style=tone),
+                      Text(f"R${value:+,.0f}", style=tone),
                       Text(f"{value / record.nav:+.1%}", style=tone))
     return Group(*head, Text(""), table)
 
@@ -1220,7 +1220,7 @@ def _orders_detail(record: CycleRecord) -> Group:
             Text(o.side.upper(), style=tone),
             Text(f"{o.quantity:,}", style=tone),
             o.ticker,
-            f"${o.price:,.2f}",
+            f"R${o.price:,.2f}",
         )
     return Group(Text("ORDERS", style=f"bold {BRIGHT}"), Text(""), table)
 
@@ -1241,7 +1241,7 @@ def _portfolio_detail(record: CycleRecord) -> Group:
     actual_net = sum(shares * record.marks[ticker] for ticker, shares in record.positions.items())
     details = [
         Text("PORTFOLIO", style=f"bold {BRIGHT}"),
-        Text(f"Target net ${target_net:+,.2f} · Actual net ${actual_net:+,.2f} · Difference ${actual_net - target_net:+,.2f}", style=MUTED),
+        Text(f"Target net R${target_net:+,.2f} · Actual net R${actual_net:+,.2f} · Difference R${actual_net - target_net:+,.2f}", style=MUTED),
     ]
     if any(s.blend.mode == "dollar_neutral" for s in record.spec.strategies):
         details.append(Text("Dollar-neutral rules apply to strategy targets. Whole-share holdings can differ; other strategies can add net exposure.", style=MUTED))
@@ -1266,7 +1266,7 @@ def _portfolio_detail(record: CycleRecord) -> Group:
         tone = GREEN if value >= 0 else RED
         table.add_row(
             ticker, side, f"{shares:+d}",
-            Text(f"${value:+,.0f}", style=tone),
+            Text(f"R${value:+,.0f}", style=tone),
             Text(f"{value / record.nav:+.1%}", style=tone),
         )
     return Group(*details, Text(""), table)
@@ -1281,8 +1281,8 @@ def _book_summary(record: CycleRecord | SessionRecord) -> Text:
     gross = (long_val - short_val) / record.nav
     net = (long_val + short_val) / record.nav
     summary = Text()
-    summary.append(f"NAV ${record.nav:,.2f}", style=f"bold {BRIGHT}")
-    summary.append(f"   Cash ${record.cash:,.0f}", style=CYAN)
+    summary.append(f"NAV R${record.nav:,.2f}", style=f"bold {BRIGHT}")
+    summary.append(f"   Cash R${record.cash:,.0f}", style=CYAN)
     summary.append(f"   Gross {gross:.0%}   Net {net:+.0%}", style=MUTED)
     return summary
 
@@ -1313,8 +1313,8 @@ def _tape_table(tape: list[tuple[str, Fill, int]]) -> Table:
             Text(fill.ticker, style=f"bold {CYAN}"),
             side,
             f"{fill.quantity:,}",
-            f"@ ${fill.price:,.2f}",
-            Text(f"${fill.quantity * fill.price:,.0f}", style=TEXT),
+            f"@ R${fill.price:,.2f}",
+            Text(f"R${fill.quantity * fill.price:,.0f}", style=TEXT),
             book,
         )
     if len(tape) > _TAPE_ROWS:
@@ -1521,7 +1521,7 @@ def _paper_detail(snap: _PaperSnapshot, width: int = 60) -> Group:
     staff = ", ".join(s.title for s in spec.strategies)
     parts: list = [
         Text.assemble((snap.deployed.name, f"bold {BRIGHT}"), "   ", snap.badge()),
-        Text(f"{staff} · {spec.rebalance} · ${spec.capital:,.0f} · {' '.join(snap.deployed.universe)}",
+        Text(f"{staff} · {spec.rebalance} · R${spec.capital:,.0f} · {' '.join(snap.deployed.universe)}",
              style=MUTED),
         Text(""),
     ]
@@ -1535,7 +1535,7 @@ def _paper_detail(snap: _PaperSnapshot, width: int = 60) -> Group:
         n = len(snap.records)
         ret, bench_ret = m.total_return_pct, m.benchmark_return_pct
         parts += [Text(""), _section("PERFORMANCE"), _facts([
-            ("Value", f"${snap.nav:,.0f}"),
+            ("Value", f"R${snap.nav:,.0f}"),
             ("Return", Text.assemble((f"{ret:+.1%}", GREEN if ret >= 0 else RED),
                                      (f"   {spec.benchmark} {bench_ret:+.1%}", MUTED))),
             ("Since", Text(f"{snap.records[0].session} · {n} {'session' if n == 1 else 'sessions'}"
@@ -1587,7 +1587,7 @@ def _session_overview(record: SessionRecord) -> Group:
             parts.append(Text.assemble(
                 (f"  {fill.side.upper():<4} ", f"bold {tone}"),
                 (f"{fill.quantity:,} {fill.ticker}", TEXT),
-                (f" @ ${fill.price:,.2f}", MUTED)))
+                (f" @ R${fill.price:,.2f}", MUTED)))
         if len(x.fills) > 8:
             parts.append(Text(f"  … {len(x.fills) - 8} more", style=MUTED))
         parts.append(Text(""))
@@ -1637,7 +1637,7 @@ def _run_plan(name: str, state: FundState, due: str | None, spec: FundSpec) -> T
         body.append(state.last_session, style=f"bold {BRIGHT}")
         body.append(".  Next session closes ", style=TEXT)
         body.append(_next_weekday(state.last_session), style=f"bold {BRIGHT}")
-        body.append(" at 4pm ET.\n\n", style=TEXT)
+        body.append(" at the observed B3 session close (São Paulo time).\n\n", style=TEXT)
         body.append("Run ", style=TEXT)
         body.append(state.last_session, style=f"bold {BRIGHT}")
         body.append(" again?  ", style=TEXT)
@@ -2005,7 +2005,7 @@ class SessionsScreen(Screen):
         staff = ", ".join(s.title for s in spec.strategies)
         self.query_one("#pf-head", Static).update(Group(
             Text.assemble((snap.deployed.name, f"bold {BRIGHT}"), ("  ·  paper", MUTED)),
-            Text(f"{staff}  ·  {spec.rebalance}  ·  ${spec.capital:,.0f}"
+            Text(f"{staff}  ·  {spec.rebalance}  ·  R${spec.capital:,.0f}"
                  f"  ·  {' '.join(snap.deployed.universe)}", style=MUTED),
         ))
         self.query_one("#pf-status", Static).update(snap.status())
@@ -2071,7 +2071,7 @@ def _update_stat_tiles(screen: Screen, benchmark: str, nav: float, fund_return: 
     def tile(label: str, value: str, style: str) -> Text:
         return Text.assemble((f"{label}\n", MUTED), (value, f"bold {style}"), justify="center")
 
-    screen.query_one("#stat-nav", Static).update(tile("PORTFOLIO", f"${nav:,.0f}", BRIGHT))
+    screen.query_one("#stat-nav", Static).update(tile("PORTFOLIO", f"R${nav:,.0f}", BRIGHT))
     screen.query_one("#stat-return", Static).update(
         tile("RETURN", f"{fund_return:+.2%}", GREEN if fund_return >= 0 else RED))
     screen.query_one("#stat-bench", Static).update(
@@ -2412,7 +2412,7 @@ class BuilderScreen(Screen):
                     )
                 with VerticalScroll(id="step-capital", classes="pane"):
                     yield Static("", id="strategy-summary")
-                    yield Label("Starting capital ($)", classes="q")
+                    yield Label("Starting capital (R$)", classes="q")
                     yield Input(
                         value=f"{DEFAULT_CAPITAL:.0f}", type="number",
                         id="capital-input",
@@ -2649,7 +2649,7 @@ class BuilderScreen(Screen):
         staff = ", ".join(s.title for s in self._state["strategies"])
         identity = Text.assemble(
             (spec.name, f"bold {BRIGHT}"),
-            (f"  ·  {staff}  ·  ${spec.capital:,.0f}  ·  {spec.rebalance}", MUTED),
+            (f"  ·  {staff}  ·  R${spec.capital:,.0f}  ·  {spec.rebalance}", MUTED),
         )
         if replaced:
             self.notify(f"Replaced the previous {spec.name}.", severity="warning")
@@ -2699,7 +2699,7 @@ class BuilderScreen(Screen):
         chosen = {
             0: self._state.get("name"),
             1: self._short_strategies(),
-            2: (f"${self._state['capital']:,.0f}"
+            2: (f"R${self._state['capital']:,.0f}"
                 if "capital" in self._state else None),
             3: self._state.get("rebalance"),
             4: (_short_tickers(self._state["universe"], 3)
@@ -2962,6 +2962,11 @@ class BacktestScreen(Screen):
         """Prefetch exactly the requests the engine will make, fanned out over
         (ticker, chunk-of-dates)."""
         app = self.app
+        if grid:
+            with FDClient() as raw:
+                data = CachedDataClient(raw)
+                if getattr(data, "source", None) == "openmarkets":
+                    data.prefetch_history(universe, spec.benchmark, min(grid), max(grid))
         has_agents = any(
             issubclass(ALPHA_MODEL_REGISTRY[m.name], LLMAgent)
             for s in spec.strategies for m in s.models

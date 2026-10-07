@@ -259,7 +259,8 @@ def make_llm(
     elif provider == "OpenAI":
         from langchain_openai import ChatOpenAI
         chat = ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
-                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE"))
+                          max_retries=1, max_tokens=max_tokens,
+                          base_url=os.getenv("OPENAI_API_BASE"))
     elif provider == "DeepSeek":
         from langchain_deepseek import ChatDeepSeek
         chat = ChatDeepSeek(model=model, api_key=api_key, timeout=timeout,

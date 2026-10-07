@@ -37,9 +37,10 @@ aihf
 
 ### API keys
 
-The app asks for keys the first time it needs them and saves them to `~/.hedge-fund/.env` — nothing to configure up front. It needs:
+The app reads the shell environment, then the checkout's `.env`, then `~/.hedge-fund/.env`, without overriding existing values. It needs:
 
-- A [Financial Datasets](https://financialdatasets.ai) API key, for prices, fundamentals, and earnings.
+- An [OpenMarkets](https://openmarkets.com.br/docs/api-rest) data API key. Set `OPENMARKETS_API_KEY` in the checkout's `.env`. No market-data fallback is used.
+- REST coverage and real response schemas still require authenticated validation; see [migration status](docs/openmarkets-migration.md) and [reproduction commands](docs/openmarkets-backtesting.md).
 - One model API key for the investor agents. Supported providers: Anthropic, OpenAI, DeepSeek, Google, xAI, Kimi, TypeSafe (Jev).
 
 Keys exported in your shell always win over the saved file.

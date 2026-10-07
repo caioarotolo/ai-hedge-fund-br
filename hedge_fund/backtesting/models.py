@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+
+EXPLORATORY_LIMITATIONS = (
+    "Fundamental publication dates and historical revisions are not proven "
+    "point-in-time; fiscal-period dates alone do not establish availability.",
+    "Price adjustments for splits, dividends and JCP must be verified with "
+    "the provider; the simulator does not credit corporate actions separately.",
+    "No transaction costs, slippage, taxes, stock-borrow fees or cash interest.",
+    "The supplied universe can contain survivorship and selection bias.",
+)
 
 
 class Trade(BaseModel):
@@ -17,7 +27,7 @@ class Trade(BaseModel):
     entry_price: float
     exit_price: float
     shares: float
-    pnl: float                        # dollar profit/loss
+    pnl: float                        # profit/loss in the result's currency
     return_pct: float                 # percentage return (signed)
     holding_days: int                 # trading days held
     reasoning: str | None = None      # why the alpha model opened this (from the Signal)
@@ -45,3 +55,7 @@ class BacktestResult(BaseModel):
     trades: list[Trade] = Field(default_factory=list)
     metrics: PerformanceMetrics | None = None
     equity_curve: list[float] = Field(default_factory=list)
+    data_source: str = "unspecified"
+    currency: str = "BRL"
+    historical_reliability: Literal["exploratory"] = "exploratory"
+    limitations: list[str] = Field(default_factory=lambda: list(EXPLORATORY_LIMITATIONS))

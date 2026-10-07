@@ -104,11 +104,11 @@ def test_load_deployed_reports_the_path_on_bad_files(tmp_path, SPEC):
 def test_next_session_is_latest_completed_for_a_fresh_fund_and_the_next_one_after(clock):
     clock("2024-06-13")  # completed through 06-12
     data = FakeDataClient(SERIES)
-    assert next_session(data, "SPY", None) == "2024-06-12"
-    assert next_session(data, "SPY", "2024-06-07") == "2024-06-10"
-    assert next_session(data, "SPY", "2024-06-12") is None
+    assert next_session(data, "BOVA11", None) == "2024-06-12"
+    assert next_session(data, "BOVA11", "2024-06-07") == "2024-06-10"
+    assert next_session(data, "BOVA11", "2024-06-12") is None
     clock("2024-06-03")  # nothing completed inside the series yet
-    assert next_session(data, "SPY", None) is None
+    assert next_session(data, "BOVA11", None) is None
 
 
 # ---------------------------------------------------------------------------

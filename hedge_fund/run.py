@@ -11,12 +11,12 @@ Usage::
         No arguments: the interactive app (a Textual TUI). Backtest a
         mandate, deploy and advance a paper fund, or build a new mandate.
 
-    aihf backtest ~/.hedge-fund/mandates/example.yaml --universe AAPL,MSFT
+    aihf backtest ~/.hedge-fund/mandates/example.yaml --universe PETR4,VALE3
         Replay the mandate over history (default: the last 18 months up to
         the latest completed session). Full result JSON on stdout; a copy
         lands in ~/.hedge-fund/research/. --start/--end/--out/--model.
 
-    aihf paper create alpha --mandate ~/.hedge-fund/mandates/example.yaml --universe AAPL,MSFT
+    aihf paper create alpha --mandate ~/.hedge-fund/mandates/example.yaml --universe PETR4,VALE3
         Deploy a paper fund: snapshot the mandate, fix the universe, open an
         empty ledger and a book with the mandate's capital.
 
@@ -48,7 +48,7 @@ from pathlib import Path
 from rich.console import Console
 
 from hedge_fund.backtesting import backtest_fund
-from hedge_fund.data import CachedDataClient, FDClient
+from hedge_fund.data import CachedDataClient, FDClient, OpenMarketsError
 from hedge_fund.data.sessions import completed_through
 from hedge_fund.fund import Fund, load_spec, normalize_universe
 from hedge_fund.paper import (
@@ -91,7 +91,7 @@ def main() -> None:
             _backtest(args, parser, console)
         else:
             _paper(args, parser, console)
-    except (FundHalted, NothingDue, LedgerError) as exc:
+    except (FundHalted, NothingDue, LedgerError, OpenMarketsError, ValueError) as exc:
         console.print(f"[red]{exc}[/]")
         sys.exit(1)
 
@@ -155,7 +155,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-_UNIVERSE_HELP = "tickers to trade, comma or space separated, e.g. AAPL,MSFT,NVDA"
+_UNIVERSE_HELP = "tickers to trade, comma or space separated, e.g. PETR4,VALE3,ITUB4"
 
 
 def _universe(text: str, parser: argparse.ArgumentParser) -> list[str]:
@@ -195,6 +195,8 @@ def _backtest(args, parser: argparse.ArgumentParser, console: Console) -> None:
 
     with FDClient() as raw:
         fd = CachedDataClient(raw)
+        if getattr(fd, "source", None) == "openmarkets":
+            fd.prefetch_history(universe, spec.benchmark, start, end)
         with console.status(
             f"[cyan]{spec.name}: backtesting {start} → {end} "
             f"({spec.rebalance} rebalance vs {spec.benchmark}) "
@@ -239,7 +241,7 @@ def _paper(args, parser: argparse.ArgumentParser, console: Console) -> None:
             parser.error(str(exc))
         console.print(
             f"[bold]{args.name}[/] deployed at {directory}  ·  mandate {spec.name}  ·  "
-            f"{', '.join(universe)}  ·  ${spec.capital:,.0f}  ·  {spec.rebalance}"
+            f"{', '.join(universe)}  ·  R${spec.capital:,.0f}  ·  {spec.rebalance}"
         )
         console.print("[dim]next: `aihf paper tick "
                       f"{args.name}` after each close (cron it), `aihf paper status {args.name}` any time[/]")
@@ -298,18 +300,18 @@ def _status_line(directory: Path) -> str:
     latest = ledger.latest()
     halted = ledger.halted()
     if latest is None:
-        state = f"not started  ·  ${deployed.spec.capital:,.0f}"
+        state = f"not started  ·  R${deployed.spec.capital:,.0f}"
     else:
         ret = latest.nav / deployed.spec.capital - 1
         state = (f"{len(ledger.sessions())} sessions  ·  last {latest.session}  ·  "
-                 f"NAV ${latest.nav:,.2f} ({ret:+.2%})")
+                 f"NAV R${latest.nav:,.2f} ({ret:+.2%})")
     flag = f"  ·  HALTED: {halted}" if halted else ""
     return (f"{deployed.name:<18} {deployed.spec.name}  ·  {' '.join(deployed.universe)}  ·  "
             f"{deployed.spec.rebalance}  ·  {state}{flag}")
 
 
 def _tick_summary(name: str, record: SessionRecord) -> str:
-    parts = [f"[bold]{name}[/] · session {record.session} · NAV ${record.nav:,.2f}"]
+    parts = [f"[bold]{name}[/] · session {record.session} · NAV R${record.nav:,.2f}"]
     if record.executed is not None:
         parts.append(f"executed {len(record.executed.orders)} orders from {record.executed.as_of}")
     if record.decision is not None:

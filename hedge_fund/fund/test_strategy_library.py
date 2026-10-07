@@ -26,7 +26,9 @@ def test_packaged_example_uses_current_format():
     from hedge_fund.fund.spec import load_spec
     spec = load_spec(Path(__file__).parent / "example.yaml")
     assert spec.schema_version == 2
-    assert [s.blend.mode for s in spec.strategies] == ["long_only", "long_short"]
+    assert [s.blend.mode for s in spec.strategies] == ["long_only"]
+    assert spec.benchmark == "BOVA11"
+    assert all(m.name != "pead" for strategy in spec.strategies for m in strategy.models)
 
 
 def test_all_shipped_strategies_execute_with_fixed_signals():
