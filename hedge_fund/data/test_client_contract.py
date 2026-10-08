@@ -237,6 +237,28 @@ def test_financial_history_maps_real_keys_and_keeps_normalized_brl_values(client
     assert "filing_date_lte" not in calls[0]["params"]
 
 
+def test_debt_to_equity_is_gross_debt_over_shareholders_equity(client):
+    stub(client, response([
+        metric("gross_debt", 366_533_000_000, "BRL"),
+        metric("equity_attributable", 480_950_000_000, "BRL"),
+        metric("net_debt_to_equity", 0.65, "ratio"),
+    ]))
+    row = client.get_financial_metrics("PETR4", "2024-04-30")[0]
+    assert row.debt_to_equity == pytest.approx(366_533 / 480_950)
+
+
+@pytest.mark.parametrize("inputs", [
+    [metric("gross_debt", 100, "BRL")],
+    [metric("gross_debt", 100, "BRL"), metric("equity_attributable", -50, "BRL")],
+    [metric("gross_debt", 100, "BRL"), metric("equity_attributable", None, "BRL")],
+])
+def test_debt_to_equity_is_none_without_positive_equity(client, inputs):
+    stub(client, response([metric("ltm:roe", 0.1, "ratio"), *inputs]))
+    row = client.get_financial_metrics("PETR4", "2024-04-30")[0]
+    assert row.debt_to_equity is None
+    assert not hasattr(row, "_gross_debt")
+
+
 def test_semantic_output_unit_fills_missing_physical_unit(client):
     row = metric("ltm:roe", 0.12, "ratio")
     row.pop("unit")

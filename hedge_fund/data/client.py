@@ -63,6 +63,9 @@ METRIC_MAP = {
     'fcf_per_share': 'free_cash_flow_per_share',
 }
 _NON_TTM_METRICS = frozenset({'eps', 'fcf_per_share'})
+# OpenMarkets publishes only net_debt_to_equity; debt_to_equity is derived from
+# these balance-sheet inputs (gross debt over shareholders' equity).
+_DEBT_TO_EQUITY_INPUTS = {'gross_debt': '_gross_debt', 'equity_attributable': '_equity_attributable'}
 MONEY = {'market_cap', 'enterprise_value', 'earnings_per_share',
          'book_value_per_share', 'free_cash_flow_per_share'}
 FRACTIONS = {
@@ -286,6 +289,7 @@ class OpenMarketsClient:
         api_period = 'ltm' if period == 'ttm' else period
         period_map = {(key.removeprefix('ltm:') if period != 'ttm' else key): field
                       for key, field in METRIC_MAP.items()}
+        period_map.update(_DEBT_TO_EQUITY_INPUTS)
         # The REST contract's metric_keys filter rejects some keys emitted by
         # financial history (for example, price_to_revenue). Fetch the valid
         # unfiltered history and retain only METRIC_MAP keys below. `limit` is
@@ -459,7 +463,12 @@ class OpenMarketsClient:
                     default=None,
                 ),
             }
-            record.update({field: item['value'] for field, item in candidates.items()})
+            values = {field: item['value'] for field, item in candidates.items()}
+            debt, equity = values.pop('_gross_debt', None), values.pop('_equity_attributable', None)
+            # Leverage over non-positive equity is undefined, not a large number.
+            if debt is not None and equity is not None and equity > 0:
+                record['debt_to_equity'] = debt / equity
+            record.update(values)
             result.append(FinancialMetrics(**record))
         return result
 
