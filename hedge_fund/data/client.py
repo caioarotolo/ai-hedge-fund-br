@@ -77,7 +77,7 @@ def normalize_ticker(ticker: str) -> str:
     ticker = ticker.strip().upper()
     if ticker.endswith('.SA'):
         ticker = ticker[:-3]
-    if not re.fullmatch(r'[A-Z]{4}\d{1,2}', ticker):
+    if not re.fullmatch(r'[A-Z][A-Z0-9]{3}\d{1,2}', ticker):
         raise CoverageError(f'{ticker!r}: expected a B3 ticker, e.g. PETR4 or BOVA11')
     return ticker
 

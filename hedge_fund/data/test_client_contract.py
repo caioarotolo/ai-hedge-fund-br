@@ -191,6 +191,13 @@ def test_incomplete_wrong_basis_or_conflicting_prices_are_refused(client, rows):
         client.get_prices("PETR4", "2024-01-01", "2024-01-31")
 
 
+@pytest.mark.parametrize("ticker", ["B3SA3", "AAPL34"])
+def test_alphanumeric_roots_and_bdrs_reach_the_api(client, ticker):
+    calls = stub(client, response([price(2)]))
+    client.get_prices(ticker, "2024-01-01", "2024-01-31")
+    assert calls[0]["url"] == f"https://api.openmarkets.com.br/v1/quotes/{ticker}"
+
+
 @pytest.mark.parametrize("ticker", ["AAPL", "PETR4.SA.BAD", "../../PETR4", ""])
 def test_foreign_or_invalid_tickers_are_refused_without_request(client, ticker):
     calls = stub(client)
